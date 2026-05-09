@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go-Kirana | Aapki Dukaan Ka Wholesale Partner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        navy: '#2C3E50',
+                        brandRed: '#E53935',
+                        whatsappGreen: '#25D366',
+                        lightGray: '#F4F7F6',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        .btn-active:active { transform: scale(0.96); }
+        .feature-card:hover { transform: translateY(-5px); transition: all 0.3s ease; }
+        .custom-shadow { box-shadow: 0 10px 30px -5px rgba(44, 62, 80, 0.1); }
+        
+        /* Smooth transitions for inputs */
+        input, textarea { transition: all 0.2s ease; }
+        input:focus, textarea:focus { 
+            border-color: #E53935 !important;
+            box-shadow: 0 0 0 4px rgba(229, 57, 53, 0.1);
+        }
+
+        /* Custom Notification Style */
+        #notification {
+            transform: translateX(-50%) translateY(100px);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #notification.show { transform: translateX(-50%) translateY(-20px); }
+    </style>
+</head>
+<body class="bg-white text-gray-900 overflow-x-hidden">
+
+    <header class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-gray-100 py-3 px-5 md:px-10 flex justify-between items-center">
+        <div class="flex flex-col">
+            <div class="text-xl md:text-2xl font-extrabold tracking-tight">
+                <span class="text-brandRed">Go</span><span class="text-navy">-Kirana</span>
+            </div>
+            <span class="text-[10px] md:text-xs font-bold text-navy uppercase tracking-widest leading-none">Munafa Aapka, Mehnat Hamari</span>
+        </div>
+        <a href="#order-section" class="bg-brandRed text-white px-5 py-2.5 rounded-lg font-bold text-sm btn-active custom-shadow">
+            Order Now
+        </a>
+    </header>
+
+    <main>
+        <section class="relative pt-12 pb-20 px-5 md:px-10 overflow-hidden bg-white">
+            <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-12">
+                <div class="w-full md:w-1/2 text-center md:text-left z-10">
+                    <h1 class="text-3xl md:text-5xl lg:text-6xl font-extrabold text-navy leading-tight mb-6">
+                        Aapki Dukaan Ka Sabse <span class="text-brandRed">Bharosemand</span> Wholesale Partner.
+                    </h1>
+                    <p class="text-lg text-gray-600 mb-8 max-w-lg mx-auto md:mx-0">
+                        Get top FMCG brands delivered directly to your shop. Save time, avoid the mandi rush, and focus on growing your business.
+                    </p>
+                    <a href="#order-section" class="inline-flex items-center justify-center gap-3 bg-whatsappGreen text-white w-full md:w-auto px-8 py-5 rounded-2xl font-extrabold text-lg btn-active shadow-xl hover:shadow-whatsappGreen/20 transition-all">
+                        <i class="fab fa-whatsapp text-2xl"></i> Place Order via WhatsApp
+                    </a>
+                </div>
+                <div class="w-full md:w-1/2 relative">
+                    <div class="absolute -top-10 -right-10 w-64 h-64 bg-brandRed/5 rounded-full blur-3xl"></div>
+                    <img src="https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&w=800&q=80" 
+                         alt="Kirana Items and FMCG Stock" 
+                         class="rounded-3xl shadow-2xl relative z-10 w-full object-cover aspect-video md:aspect-auto"
+                         onerror="this.src='https://placehold.co/800x600/2C3E50/FFFFFF?text=Premium+Kirana+Items'">
+                </div>
+            </div>
+        </section>
+
+        <section id="about-us" class="bg-lightGray py-20 px-5 md:px-10">
+            <div class="max-w-6xl mx-auto">
+                <div class="text-center mb-16">
+                    <h2 class="text-3xl font-extrabold text-navy mb-4">Why Choose Go-Kirana?</h2>
+                    <div class="h-1 w-20 bg-brandRed mx-auto rounded-full"></div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <!-- Feature 1 -->
+                    <div class="bg-white p-8 rounded-3xl feature-card custom-shadow border border-gray-50">
+                        <div class="w-16 h-16 bg-red-50 text-brandRed rounded-2xl flex items-center justify-center mb-6 text-2xl">
+                            <i class="fas fa-certificate"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-navy mb-3">Top Brands</h3>
+                        <p class="text-gray-500 leading-relaxed">Direct access to Parle, Tata, P&G, and all major FMCG essentials at wholesale prices.</p>
+                    </div>
+                    <!-- Feature 2 -->
+                    <div class="bg-white p-8 rounded-3xl feature-card custom-shadow border border-gray-50">
+                        <div class="w-16 h-16 bg-red-50 text-brandRed rounded-2xl flex items-center justify-center mb-6 text-2xl">
+                            <i class="fas fa-indian-rupee-sign"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-navy mb-3">Low MOQ</h3>
+                        <p class="text-gray-500 leading-relaxed">No need to block capital. Start your restock with a minimum order of just ₹2,000.</p>
+                    </div>
+                    <!-- Feature 3 -->
+                    <div class="bg-white p-8 rounded-3xl feature-card custom-shadow border border-gray-50">
+                        <div class="w-16 h-16 bg-red-50 text-brandRed rounded-2xl flex items-center justify-center mb-6 text-2xl">
+                            <i class="fas fa-truck-fast"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-navy mb-3">Doorstep Delivery</h3>
+                        <p class="text-gray-500 leading-relaxed">Next morning delivery guaranteed. Zero transport costs and zero mandi fatigue.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="how-it-works" class="py-20 px-5 md:px-10 bg-white">
+            <div class="max-w-4xl mx-auto">
+                <div class="text-center mb-16">
+                    <h2 class="text-3xl font-extrabold text-navy mb-4">3 Simple Steps</h2>
+                    <p class="text-gray-500">How we make your life easier every day</p>
+                </div>
+                <div class="space-y-12 relative">
+                    <!-- Step 1 -->
+                    <div class="flex items-start gap-6">
+                        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-navy text-white flex items-center justify-center font-bold text-xl shadow-lg">1</div>
+                        <div>
+                            <h3 class="text-xl font-bold text-navy mb-2">Send Your List</h3>
+                            <p class="text-gray-600">Enter your shop details and the list of items you need in our quick form.</p>
+                        </div>
+                    </div>
+                    <!-- Step 2 -->
+                    <div class="flex items-start gap-6">
+                        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-navy text-white flex items-center justify-center font-bold text-xl shadow-lg">2</div>
+                        <div>
+                            <h3 class="text-xl font-bold text-navy mb-2">Order by 4 PM</h3>
+                            <p class="text-gray-600">Complete your list before the evening cutoff. Our team begins packing your order immediately.</p>
+                        </div>
+                    </div>
+                    <!-- Step 3 -->
+                    <div class="flex items-start gap-6">
+                        <div class="flex-shrink-0 w-12 h-12 rounded-full bg-navy text-white flex items-center justify-center font-bold text-xl shadow-lg">3</div>
+                        <div>
+                            <h3 class="text-xl font-bold text-navy mb-2">Morning Delivery</h3>
+                            <p class="text-gray-600">Fresh stock reaches your shop between 7 AM and 8 AM, before you open for your first customer.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="order-section" class="py-20 px-5 md:px-10 bg-lightGray">
+            <div class="max-w-xl mx-auto">
+                <div class="bg-white p-8 md:p-10 rounded-[2.5rem] custom-shadow border border-white">
+                    <div class="text-center mb-8">
+                        <div class="inline-block px-4 py-1.5 bg-green-100 text-green-700 rounded-full text-xs font-bold uppercase tracking-widest mb-4">Fastest Ordering</div>
+                        <h2 class="text-2xl font-extrabold text-navy">Quick Order</h2>
+                    </div>
+                    
+                    <div class="space-y-6">
+                        <div>
+                            <label for="shopName" class="block text-sm font-bold text-navy mb-2">Shop Name / दुकान का नाम</label>
+                            <input type="text" id="shopName" placeholder="Example: Gupta General Store" class="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-navy font-medium">
+                        </div>
+                        <div>
+                            <label for="mobileNumber" class="block text-sm font-bold text-navy mb-2">Mobile Number / मोबाइल नंबर</label>
+                            <input type="tel" id="mobileNumber" maxlength="10" placeholder="10 Digit Mobile Number" class="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-navy font-medium">
+                        </div>
+                        <div>
+                            <label for="itemsNeeded" class="block text-sm font-bold text-navy mb-2">Items Needed / सामान की लिस्ट</label>
+                            <textarea id="itemsNeeded" rows="4" placeholder="Example: 2 peti Parle-G, 10kg Aashirvaad Atta, 5 dozen Lifebuoy..." class="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-navy font-medium"></textarea>
+                        </div>
+                        <button onclick="handleWhatsAppOrder()" class="w-full bg-whatsappGreen text-white py-5 rounded-2xl font-extrabold text-lg btn-active shadow-lg flex items-center justify-center gap-3 mt-4">
+                            <i class="fab fa-whatsapp text-2xl"></i> Send Order on WhatsApp
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-navy text-white py-16 px-5 md:px-10">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div>
+                <div class="text-2xl font-extrabold mb-4">
+                    <span class="text-brandRed">Go</span>-Kirana
+                </div>
+                <p class="text-gray-400 max-w-sm mb-6 leading-relaxed">
+                    Modernizing the supply chain for rural India. Empowering small retailers with technology and reliable logistics.
+                </p>
+                <div class="flex gap-4">
+                    <a href="#" class="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-gray-400 hover:text-white"><i class="fab fa-facebook-f"></i></a>
+                    <a href="#" class="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-gray-400 hover:text-white"><i class="fab fa-instagram"></i></a>
+                </div>
+            </div>
+            <div class="space-y-4">
+                <h4 class="font-bold text-lg mb-4">Connect with us</h4>
+                <p class="flex items-center gap-3 text-gray-400"><i class="fas fa-phone text-brandRed"></i> +91 98765 43210</p>
+                <p class="flex items-center gap-3 text-gray-400"><i class="fas fa-envelope text-brandRed"></i> hello@gokirana.in</p>
+                <p class="flex items-center gap-3 text-gray-400"><i class="fas fa-location-dot text-brandRed"></i> Meerut, Uttar Pradesh, India</p>
+            </div>
+        </div>
+        <div class="max-w-6xl mx-auto mt-12 pt-8 border-t border-white/5 text-center text-gray-500 text-sm">
+            <p>&copy; 2026 Go-Kirana Distribution. Built for Rural Growth.</p>
+        </div>
+    </footer>
+
+    <div id="notification" class="fixed bottom-0 left-1/2 bg-navy text-white px-8 py-4 rounded-2xl shadow-2xl z-[100] font-bold text-center pointer-events-none min-w-[300px]">
+        <i class="fas fa-info-circle mr-2 text-brandRed"></i>
+        <span id="notification-text">Message goes here</span>
+    </div>
+
+    <script>
+        function showNotification(text) {
+            const el = document.getElementById('notification');
+            const txt = document.getElementById('notification-text');
+            txt.innerText = text;
+            el.classList.add('show');
+            setTimeout(() => el.classList.remove('show'), 3000);
+        }
+
+        function handleWhatsAppOrder() {
+            const businessNumber = "917678153075"; // Actual number here
+            const shop = document.getElementById('shopName').value.trim();
+            const phone = document.getElementById('mobileNumber').value.trim();
+            const list = document.getElementById('itemsNeeded').value.trim();
+
+            // Simple validation
+            if (!shop) {
+                showNotification("Please enter shop name");
+                return;
+            }
+            if (phone.length < 10) {
+                showNotification("Please enter valid mobile number");
+                return;
+            }
+            if (!list) {
+                showNotification("Please enter items needed");
+                return;
+            }
+
+            // Formatting the message
+            const message = `New Order from Go-Kirana Website!%0A` +
+                            `*Shop:* ${encodeURIComponent(shop)}%0A` +
+                            `*Phone:* ${encodeURIComponent(phone)}%0A` +
+                            `*Items:*%0A${encodeURIComponent(list)}`;
+
+            const whatsappUrl = `https://wa.me/${businessNumber}?text=${message}`;
+            
+            // Interaction logging (Simulation)
+            console.log("Redirecting to:", whatsappUrl);
+            
+            // Redirection
+            window.open(whatsappUrl, '_blank');
+        }
+
+        // Prevent non-numeric in phone input
+        document.getElementById('mobileNumber').addEventListener('input', function (e) {
+            this.value = this.value.replace(/[^0-9]/g, '');
+        });
+    </script>
+</body>
+</html>
