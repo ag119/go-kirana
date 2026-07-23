@@ -757,6 +757,39 @@
 
         <!-- TAB 3: STORE ANALYTICS DASHBOARD -->
         <div id="dashboardTab" class="tab-content">
+            <div class="section-title">Today</div>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Today's Sales</div>
+                    <div class="kpi-num" id="kpi-day-sales">₹0</div>
+                </div>
+                <div class="kpi-card blue">
+                    <div class="kpi-label">Today's Orders</div>
+                    <div class="kpi-num" id="kpi-day-orders">0</div>
+                </div>
+                <div class="kpi-card orange">
+                    <div class="kpi-label">Today's Profit / Loss</div>
+                    <div class="kpi-num" id="kpi-day-profit">₹0</div>
+                </div>
+            </div>
+
+            <div class="section-title">This Month</div>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Month's Sales</div>
+                    <div class="kpi-num" id="kpi-month-sales">₹0</div>
+                </div>
+                <div class="kpi-card blue">
+                    <div class="kpi-label">Month's Orders</div>
+                    <div class="kpi-num" id="kpi-month-orders">0</div>
+                </div>
+                <div class="kpi-card orange">
+                    <div class="kpi-label">Month's Profit / Loss</div>
+                    <div class="kpi-num" id="kpi-month-profit">₹0</div>
+                </div>
+            </div>
+
+            <div class="section-title">Overall</div>
             <div class="kpi-grid">
                 <div class="kpi-card">
                     <div class="kpi-label">Total Revenue</div>
@@ -1109,6 +1142,12 @@
 
         function renderStoreAnalyticsDashboard() {
             let totalRevenue = 0, totalProfit = 0, monthlySales = {};
+            let dayOrders = 0, daySales = 0, dayProfit = 0;
+            let monthOrders = 0, monthSales = 0, monthProfit = 0;
+
+            const now = new Date();
+            const todayStr = now.toISOString().substring(0, 10);
+            const thisMonthStr = now.toISOString().substring(0, 7);
 
             rawOrders.forEach(o => {
                 const bill = parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || '0').replace(/[^0-9.-]+/g,"")) || 0;
@@ -1121,8 +1160,27 @@
                 if (dateStr.length >= 7) {
                     const m = dateStr.substring(0, 7);
                     monthlySales[m] = (monthlySales[m] || 0) + bill;
+
+                    if (m === thisMonthStr) {
+                        monthOrders++;
+                        monthSales += bill;
+                        monthProfit += profit;
+                    }
+                }
+                if (dateStr.length >= 10 && dateStr.substring(0, 10) === todayStr) {
+                    dayOrders++;
+                    daySales += bill;
+                    dayProfit += profit;
                 }
             });
+
+            document.getElementById('kpi-day-orders').innerText = dayOrders;
+            document.getElementById('kpi-day-sales').innerText = `₹${daySales.toLocaleString('en-IN')}`;
+            document.getElementById('kpi-day-profit').innerText = `₹${dayProfit.toLocaleString('en-IN', {minimumFractionDigits:2})}`;
+
+            document.getElementById('kpi-month-orders').innerText = monthOrders;
+            document.getElementById('kpi-month-sales').innerText = `₹${monthSales.toLocaleString('en-IN')}`;
+            document.getElementById('kpi-month-profit').innerText = `₹${monthProfit.toLocaleString('en-IN', {minimumFractionDigits:2})}`;
 
             document.getElementById('kpi-revenue').innerText = `₹${totalRevenue.toLocaleString('en-IN')}`;
             document.getElementById('kpi-orders').innerText = rawOrders.length;
