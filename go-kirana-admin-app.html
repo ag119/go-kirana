@@ -726,6 +726,8 @@
             <button class="pill-btn" onclick="switchTab('dashboardTab')">📈 Store Analytics</button>
             <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
             <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
+            <button class="pill-btn" onclick="switchTab('shopInsightsTab')">🧾 Shop Insights</button>
+            <button class="pill-btn" onclick="switchTab('inventoryTab')">🧭 Inventory Guide</button>
             <button class="pill-btn" onclick="switchTab('ordersTab')">📦 All Orders Stream</button>
         </div>
 
@@ -878,6 +880,29 @@
                     💬 Send New Customer Order to WhatsApp (7678153075)
                 </button>
             </div>
+        </div>
+
+        <!-- TAB: SHOP INSIGHTS -->
+        <div id="shopInsightsTab" class="tab-content">
+            <div class="form-group">
+                <label>Select Shopkeeper:</label>
+                <select id="shopInsightSelect" onchange="renderShopInsights()" style="width:100%; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-bg); font-size:0.9rem; font-family:inherit; box-shadow:var(--shadow-sm); outline:none;">
+                    <option value="">— Choose a shop —</option>
+                </select>
+            </div>
+            <div id="si-meta" style="font-size:0.8rem; color:var(--text-muted); font-weight:700; margin-bottom:14px;"></div>
+            <div id="si-table1"></div>
+            <div id="si-table2" style="margin-top:24px;"><p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">Select a shop to see its reorder list and upsell recommendations.</p></div>
+        </div>
+
+        <!-- TAB: INVENTORY GUIDE -->
+        <div id="inventoryTab" class="tab-content">
+            <div class="section-title">
+                <span>🧭 Inventory Guide</span>
+                <span id="invGuideRange" style="font-size:0.8rem; color:var(--text-muted); font-weight:600;"></span>
+            </div>
+            <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">Store-wide demand over the last 30 days — what's moving, what it earns. Ordered by total revenue.</p>
+            <div id="invGuideBody"></div>
         </div>
 
         <!-- TAB 6: ALL ORDERS STREAM -->
@@ -1090,6 +1115,9 @@
                 renderFollowupGrid();
                 renderPriceList(rawProducts);
                 renderOrdersStream(rawOrders);
+                buildInsightIndex();
+                renderShopInsightSelect();
+                renderInventoryGuide();
 
                 status.className = 'status-success';
                 status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
@@ -1742,6 +1770,236 @@
                     </div>
                 </div>
             `).join('');
+        }
+
+        // ===== SHOP INSIGHTS: Reorder (Table 1) + Upsell engines (Table 2) =====
+        let II = { lines:[], baskets:{}, itemShops:{}, totalShops:0, totalOrders:0 };
+        let skuToStd = {}, margByStd = {}, custIdToName = {};
+        const EXCL_CATS = ['Tobacco','Sugar/Salt'];
+
+        function toNum(x){ return parseFloat(String(x==null?0:x).replace(/[^0-9.-]+/g,'')) || 0; }
+
+        function catOf(name){
+            const s = String(name).toLowerCase();
+            if (/cigar|cigerette|marlboro|commander|bidi|supari|gutka|pasand|gagan|kuber|dilbag|sada gold|do bhai|safal|tansen|sai bukka|zaffran/.test(s)) return 'Tobacco';
+            if (s==='sugar' || s==='salt') return 'Sugar/Salt';
+            if (/shampoo|clinic plus|sunsilk|\bdove\b|vatika|patanjali/.test(s)) return 'Shampoo';
+            if (/soap/.test(s)) return 'Soap';
+            if (/surf|wheel/.test(s)) return 'Detergent';
+            if (/oil|refind/.test(s)) return 'Oil';
+            if (/(dal|daal|chhole|chana|besan|moong|urad|arhar|masoor|malka)/.test(s) && !/namkeen|pari soya/.test(s)) return 'Pulses';
+            if (/rice/.test(s)) return 'Rice';
+            if (/tea/.test(s)) return 'Tea';
+            if (/biscuit|parle-g|good day|rusk/.test(s)) return 'Biscuits';
+            if (/bhujia|ghatia|peanut|boondi|kurkura|namkeen|lays|fan|finger|chips/.test(s)) return 'Namkeen';
+            if (/toffee|chocolate|center fruit|pulse|snicker|melodi/.test(s)) return 'Candy';
+            return 'Other';
+        }
+
+        function buildInsightIndex(){
+            skuToStd = {}; margByStd = {};
+            rawProducts.forEach(p=>{
+                const sku=(p['SKU']||'').trim();
+                const std=p['Standard Name']||p['Item Name']||sku;
+                const pu=toNum(p['Price per Unit']), ap=toNum(p['Actual Price']);
+                const mp = pu>0 ? ((pu-ap)/pu*100) : 0;
+                if(sku) skuToStd[sku]=std;
+                if(!(std in margByStd) || mp>margByStd[std]) margByStd[std]=mp;
+            });
+            const oidCust={};
+            rawOrders.forEach(o=>{
+                const id=String(o['Id']||o['Order ID']||'').trim();
+                oidCust[id]={ cust:o['CustomerName']||'', cid:(o['CustomerId']||'').trim() };
+            });
+            const lines=[], baskets={}, itemShops={}, shopSet=new Set();
+            rawOrderItems.forEach(i=>{
+                const oid=String(i['Order ID']||i['Id']||'').trim();
+                const oc=oidCust[oid]; if(!oc) return;
+                const sku=(i['SKU']||'').trim();
+                const std = skuToStd[sku] || (productMapBySKU[sku]?productMapBySKU[sku].name:sku);
+                const qty = parseInt(i['Quantity'])||0;
+                const up = toNum(i['Unit Price']), ap = toNum(i['Actual Price']);
+                const rev = toNum(i['Calculated Total']);
+                const mp = up>0 ? ((up-ap)/up*100) : 0;
+                lines.push({oid, std, cust:oc.cust, cid:oc.cid, qty, rev, mp});
+                (baskets[oid]=baskets[oid]||new Set()).add(std);
+                (itemShops[std]=itemShops[std]||new Set()).add(oc.cust);
+                if(oc.cust) shopSet.add(oc.cust);
+            });
+            II={ lines, baskets, itemShops, totalShops:shopSet.size, totalOrders:Object.keys(baskets).length };
+        }
+
+        function renderShopInsightSelect(){
+            const sel=document.getElementById('shopInsightSelect');
+            if(!sel) return;
+            custIdToName={};
+            const opts = processedCustomers.map(c=>{
+                const id=String(c['Id']||c['ID']||'').trim();
+                custIdToName[id]=c['Owner Name']||'';
+                return `<option value="${id}">${c['Owner Name']} (${c.totalOrds} orders)</option>`;
+            }).join('');
+            sel.innerHTML = '<option value="">— Choose a shop —</option>'+opts;
+        }
+
+        function siBadge(txt, color){
+            const map={green:'#dcfce7|#15803d', amber:'#ffedd5|#c2410c', red:'#fee2e2|#b91c1c', gray:'#f1f5f9|#64748b'};
+            const parts=(map[color]||map.gray).split('|');
+            return `<span style="background:${parts[0]}; color:${parts[1]}; font-size:0.7rem; font-weight:800; padding:3px 9px; border-radius:12px; white-space:nowrap;">${txt}</span>`;
+        }
+
+        function siPct(v){
+            const cls = v>0?'profit-pos':(v<0?'profit-neg':'');
+            return `<span class="profit-badge ${cls}">${v.toFixed(2)}%</span>`;
+        }
+
+        function renderShopInsights(){
+            const sel=document.getElementById('shopInsightSelect');
+            const custId=sel.value;
+            const t1=document.getElementById('si-table1');
+            const t2=document.getElementById('si-table2');
+            const meta=document.getElementById('si-meta');
+            if(!custId){ t1.innerHTML=''; t2.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">Select a shop to see its reorder list and upsell recommendations.</p>'; meta.innerText=''; return; }
+            const custName = custIdToName[custId] || '';
+            const nameLC = custName.toLowerCase();
+            const mine = II.lines.filter(l => (l.cid && l.cid===custId) || (l.cust||'').toLowerCase()===nameLC);
+
+            const g={};
+            mine.forEach(l=>{ const s=g[l.std]=g[l.std]||{orders:new Set(), qty:0, rev:0, mps:[]}; s.orders.add(l.oid); s.qty+=l.qty; s.rev+=l.rev; s.mps.push(l.mp); });
+            const totRev = Object.values(g).reduce((a,s)=>a+s.rev,0)||1;
+            const rows1 = Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; const avgmp=s.mps.reduce((a,b)=>a+b,0)/s.mps.length; return {std, orders:oc, avgvol:s.qty/oc, rev:s.rev, revpct:100*s.rev/totRev, profit:avgmp}; }).sort((a,b)=>b.rev-a.rev);
+            const shopOrders = new Set(mine.map(l=>l.oid)).size;
+            meta.innerText = `${custName} • ${shopOrders} orders • ${rows1.length} distinct items`;
+
+            if(!rows1.length){ t1.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:12px;">No order history for this shop.</p>'; t2.innerHTML=''; return; }
+
+            const t1cols = `<thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
+            <th style="padding:8px;">Item</th><th style="padding:8px; text-align:center;">Orders</th><th style="padding:8px; text-align:center;">Avg vol</th><th style="padding:8px; text-align:right;">Revenue</th><th style="padding:8px; text-align:right;">Rev %</th><th style="padding:8px; text-align:right;">Profit %</th></tr></thead>`;
+            const t1body = arr => arr.map(r=>`<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:8px; font-weight:700;">${r.std}</td>
+            <td style="padding:8px; text-align:center;">${r.orders}</td>
+            <td style="padding:8px; text-align:center;">${r.avgvol.toFixed(1)}</td>
+            <td style="padding:8px; text-align:right;">₹${Math.round(r.rev).toLocaleString('en-IN')}</td>
+            <td style="padding:8px; text-align:right;">${r.revpct.toFixed(1)}%</td>
+            <td style="padding:8px; text-align:right;">${siPct(r.profit)}</td></tr>`).join('');
+            const mostOrdered = [...rows1].sort((a,b)=> (b.orders-a.orders) || (b.rev-a.rev)).slice(0,5);
+            const mostMargin = [...rows1].filter(r=>r.profit>0).sort((a,b)=> (b.profit-a.profit) || (b.rev-a.rev)).slice(0,5);
+            const sumPct = arr => arr.reduce((a,r)=>a+r.revpct,0);
+            const revNote = arr => arr.length ? `<div style="font-size:0.78rem; color:var(--text-secondary); font-weight:700; margin-top:8px;">These ${arr.length} items = ${sumPct(arr).toFixed(1)}% of his total revenue</div>` : '';
+            const emptyT1 = `<tr><td colspan="6" style="padding:10px; color:var(--text-muted); font-size:0.8rem;">No positive-margin items yet.</td></tr>`;
+            t1.innerHTML = `<div class="section-title" style="font-size:1rem;">📦 Table 1A — Most ordered <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">top 5 by no. of orders</span></div>
+            <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.82rem;">${t1cols}<tbody>${t1body(mostOrdered)}</tbody></table></div>
+            ${revNote(mostOrdered)}
+            <div class="section-title" style="font-size:1rem; margin-top:22px;">💰 Table 1B — Highest margin <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">top 5 by profit %, non-zero only</span></div>
+            <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.82rem;">${t1cols}<tbody>${mostMargin.length ? t1body(mostMargin) : emptyT1}</tbody></table></div>
+            ${revNote(mostMargin)}`;
+
+            const mineSet = new Set(Object.keys(g));
+            const myCats = new Set([...mineSet].map(catOf).filter(c=>EXCL_CATS.indexOf(c)<0 && c!=='Other'));
+            const allItems = Object.keys(II.itemShops);
+            const eng={};
+            const addEng=(std,e)=>{ (eng[std]=eng[std]||new Set()).add(e); };
+            const star=std=> (eng[std]&&eng[std].size>=2)?' ⭐':'';
+
+            const cand1 = allItems.filter(std=>!mineSet.has(std) && EXCL_CATS.indexOf(catOf(std))<0).map(std=>{
+                const peers=[...II.itemShops[std]].filter(c=>(c||'').toLowerCase()!==nameLC).length;
+                return {std, peers, margin:Math.max(margByStd[std]||0,0)};
+            }).filter(x=>x.peers>=2);
+            const a1=[...cand1].sort((x,y)=>y.peers-x.peers).slice(0,5);
+            const b1=cand1.filter(x=>x.margin>0).sort((x,y)=>(y.peers*y.margin)-(x.peers*x.margin)).slice(0,5);
+            a1.concat(b1).forEach(x=>addEng(x.std,'P'));
+
+            const catAnchors = {};
+            mineSet.forEach(std=>{ const c=catOf(std); if(EXCL_CATS.indexOf(c)>=0) return; (catAnchors[c]=catAnchors[c]||[]).push(std); });
+            const cand2 = allItems.filter(std=>!mineSet.has(std) && myCats.has(catOf(std))).map(std=>({std,cat:catOf(std),margin:Math.max(margByStd[std]||0,0),anchors:(catAnchors[catOf(std)]||[]).slice(0,2)})).sort((a,b)=>b.margin-a.margin).slice(0,5);
+            cand2.forEach(x=>addEng(x.std,'C'));
+
+            // Engine 3: his top-5 most-ordered items as bases -> one top co-occurred reco per base -> dedupe
+            const bases3 = mostOrdered.map(r=>r.std);
+            const basketArr = Object.values(II.baskets);
+            const picked3 = new Set();
+            const cand3 = [];
+            bases3.forEach(base=>{
+                let nb=0; const cc={};
+                basketArr.forEach(set=>{
+                    if(!set.has(base)) return;
+                    nb++;
+                    set.forEach(s=>{ if(mineSet.has(s)||EXCL_CATS.indexOf(catOf(s))>=0||(margByStd[s]||0)<=0) return; cc[s]=(cc[s]||0)+1; });
+                });
+                if(!nb) return;
+                const rankedC = Object.keys(cc).filter(c=>cc[c]>=2).sort((a,b)=>cc[b]-cc[a]);
+                for(const c of rankedC){
+                    if(picked3.has(c)) continue;
+                    picked3.add(c);
+                    cand3.push({std:c, base, conf:Math.round(100*cc[c]/nb), margin:margByStd[c]||0});
+                    break;
+                }
+            });
+            cand3.forEach(x=>addEng(x.std,'O'));
+
+            const e1status = II.totalShops>=12 ? siBadge('✅ Reliable','green') : (II.totalShops>=6 ? siBadge('🟡 Usable','amber') : siBadge('🔒 Locked','red'));
+            const e2ok = shopOrders>=3 && myCats.size>=2;
+            const e2status = e2ok ? siBadge('✅ Reliable','green') : siBadge('⚠️ Needs history','amber');
+            const e3status = II.totalOrders>=250 ? siBadge('✅ Reliable','green') : (II.totalOrders>=100 ? siBadge('🟡 Usable','amber') : siBadge('⚠️ Maturing '+II.totalOrders+'/250','amber'));
+
+            const listRows = (arr, cols) => arr.length ? arr.map(r=>`<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px; font-weight:700;">${r.std}${star(r.std)}</td>${cols(r)}</tr>`).join('') : `<tr><td colspan="3" style="padding:10px; color:var(--text-muted); font-size:0.8rem;">None qualify yet.</td></tr>`;
+
+            let html = `<div class="section-title" style="font-size:1rem;">🚀 Table 2 — Grow the basket</div>`;
+
+            if (II.totalShops < 6){
+                html += `<div style="background:#fef2f2; border:1px solid #fecaca; padding:14px; border-radius:12px; margin-bottom:16px;"><strong style="color:#991b1b; font-size:0.9rem;">① Popular near you</strong> ${siBadge('🔒 Locked','red')}<p style="color:#7f1d1d; font-size:0.8rem; margin-top:6px;">Too few shops (only ${II.totalShops}) to spot demand patterns yet — this sharpens as you add shops.</p></div>`;
+            } else {
+                const anyZero = a1.some(x=>x.margin<=0);
+                html += `<div style="background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;"><strong style="font-size:0.9rem;">① Popular near you</strong> ${e1status}</div>
+                <div style="font-size:0.78rem; color:var(--text-muted); font-weight:700; margin:8px 0 4px;">1A · Pure demand (margin ignored)</div>
+                <table style="width:100%; border-collapse:collapse; font-size:0.8rem;"><tbody>${listRows(a1, r=>`<td style="padding:7px; text-align:center;">${r.peers} shops</td><td style="padding:7px; text-align:right;">${siPct(r.margin)}</td>`)}</tbody></table>
+                ${anyZero ? `<p style="background:#fffbeb; border:1px solid #fde68a; color:#92400e; font-size:0.75rem; padding:8px 10px; border-radius:8px; margin-top:8px;">⚠️ Some earn 0% — negotiate a better buy price or add a delivery charge before pushing.</p>` : ``}
+                <div style="font-size:0.78rem; color:var(--text-muted); font-weight:700; margin:14px 0 4px;">1B · Popular + margin (push today)</div>
+                <table style="width:100%; border-collapse:collapse; font-size:0.8rem;"><tbody>${listRows(b1, r=>`<td style="padding:7px; text-align:center;">${r.peers} shops</td><td style="padding:7px; text-align:right;">${siPct(r.margin)}</td>`)}</tbody></table></div>`;
+            }
+
+            html += `<div style="background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><strong style="font-size:0.9rem;">② Fits what he sells</strong> ${e2status}</div>
+            <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">Higher-margin items in categories he already trusts you for.</p>
+            <table style="width:100%; border-collapse:collapse; font-size:0.8rem;"><tbody>${cand2.length ? cand2.map(r=>`<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px; font-weight:700;">${r.std}${star(r.std)}<div style="font-size:0.7rem; color:var(--text-muted); font-weight:600;">Because he buys ${r.cat}${r.anchors.length?': '+r.anchors.join(', '):''}</div></td><td style="padding:7px; text-align:right; vertical-align:top;">${siPct(r.margin)}</td></tr>`).join('') : `<tr><td style="padding:10px; color:var(--text-muted); font-size:0.8rem;">None qualify yet.</td></tr>`}</tbody></table></div>`;
+
+            html += `<div style="background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><strong style="font-size:0.9rem;">③ Bought together</strong> ${e3status}</div>
+            <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">Pairs with his current orders.${II.totalOrders<250?' Treat as a hint — gets sharper as you grow.':''}</p>
+            <table style="width:100%; border-collapse:collapse; font-size:0.8rem;"><tbody>${cand3.length ? cand3.map(r=>`<tr style="border-bottom:1px solid var(--border);"><td style="padding:7px; font-weight:700;">${r.std}${star(r.std)}<div style="font-size:0.7rem; color:var(--text-muted); font-weight:600;">Because he buys ${r.base} · ${r.conf}% co-buy this</div></td><td style="padding:7px; text-align:right; vertical-align:top;">${siPct(r.margin)}</td></tr>`).join('') : `<tr><td style="padding:10px; color:var(--text-muted); font-size:0.8rem;">None qualify yet.</td></tr>`}</tbody></table></div>`;
+
+            t2.innerHTML = html;
+        }
+
+        function renderInventoryGuide(){
+            const container=document.getElementById('invGuideBody');
+            const rangeLbl=document.getElementById('invGuideRange');
+            if(!container) return;
+            const oidDate={};
+            rawOrders.forEach(o=>{ const id=String(o['Id']||o['Order ID']||'').trim(); const ds=String(o['Order Date']||'').trim(); oidDate[id]= ds ? new Date(ds) : null; });
+            const today=new Date();
+            const cutoff=new Date(today.getTime()-30*24*3600*1000);
+            const fmt=d=>d.toISOString().slice(0,10);
+            if(rangeLbl) rangeLbl.innerText=`Last 30 days · ${fmt(cutoff)} → ${fmt(today)}`;
+            const g={};
+            II.lines.forEach(l=>{ const d=oidDate[l.oid]; if(!d || isNaN(d) || d<cutoff) return; const s=g[l.std]=g[l.std]||{orders:new Set(), rev:0, prof:0, qty:0, cost:0}; s.orders.add(l.oid); s.rev+=l.rev; s.prof+=l.rev*(l.mp/100); s.qty+=l.qty; s.cost+=l.rev*(1-l.mp/100); });
+            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; return {std, orders:oc, avgUnits: oc? s.qty/oc : 0, costUnit: s.qty? s.cost/s.qty : 0, rev:s.rev, margin: s.rev ? 100*s.prof/s.rev : 0}; }).sort((a,b)=>b.rev-a.rev);
+            if(!rows.length){ container.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No orders in the last 30 days.</p>'; return; }
+            const totRev=rows.reduce((a,r)=>a+r.rev,0);
+            container.innerHTML=`<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
+            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:center;">Avg units/order</th><th style="padding:9px; text-align:right;">Avg cost/unit</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th></tr></thead><tbody>`
+            + rows.map((r,i)=>`<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:9px; color:var(--text-muted);">${i+1}</td>
+            <td style="padding:9px; font-weight:700;">${r.std}</td>
+            <td style="padding:9px; text-align:center;">${r.orders}</td>
+            <td style="padding:9px; text-align:center;">${r.avgUnits.toFixed(1)}</td>
+            <td style="padding:9px; text-align:right;">₹${r.costUnit>=100?Math.round(r.costUnit).toLocaleString('en-IN'):r.costUnit.toFixed(1)}</td>
+            <td style="padding:9px; text-align:right;">₹${Math.round(r.rev).toLocaleString('en-IN')}</td>
+            <td style="padding:9px; text-align:right;">${(100*r.rev/totRev).toFixed(1)}%</td>
+            <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td></tr>`).join('')
+            + `</tbody></table></div>
+            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · total revenue ₹${Math.round(totRev).toLocaleString('en-IN')} in the window</div>`;
         }
 
         function switchTab(tabId) {
