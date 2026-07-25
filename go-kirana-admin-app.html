@@ -2035,10 +2035,15 @@
               const hot = invCum < invCut; invCum += r.rev;
               const bg = hot ? hotBg : 'transparent';
               let vh='';
+              if(r.vars.length){
+                vh+=`<tr style="font-size:0.68rem; color:var(--text-muted); background:var(--bg); text-transform:uppercase; letter-spacing:0.02em;"><td style="padding:5px 9px 5px 24px;">Pack</td><td style="padding:5px; text-align:right;">Cur. buy</td><td style="padding:5px; text-align:right;">Best buy</td><td style="padding:5px; text-align:right;">Sell</td><td style="padding:5px; text-align:right;">Margin</td><td style="padding:5px; text-align:right;">Buy → 4%</td><td style="padding:5px; text-align:center;">Trend</td></tr>`;
+              }
               r.vars.forEach(v=>{
                 const tr = v.trend==='down'?'<span style="color:#15803d;">↓ cheaper</span>':(v.trend==='up'?'<span style="color:#b91c1c;">↑ dearer</span>':'<span style="color:var(--text-muted);">→ flat</span>');
-                const bargain = v.bestBuy<v.curBuy-0.01?' <span style="color:#15803d;">(best ₹'+Math.round(v.bestBuy)+')</span>':'';
-                vh+=`<tr style="font-size:0.76rem; background:var(--bg); border-bottom:1px solid var(--border);"><td style="padding:6px 9px 6px 24px;">${v.item}</td><td style="padding:6px; text-align:right;">buy ₹${Math.round(v.curBuy)}${bargain}</td><td style="padding:6px; text-align:right;">sell ₹${Math.round(v.sell)}</td><td style="padding:6px; text-align:right;">${v.margin.toFixed(1)}%</td><td style="padding:6px; text-align:center;">${tr}</td></tr>`;
+                const needBuy = v.sell>0 ? Math.round(v.sell*(1-4/100)) : 0;
+                const proven = v.bestBuy>0 && v.bestBuy<=needBuy;
+                const bestCell = proven ? '<span style="color:#15803d; font-weight:700;">₹'+Math.round(v.bestBuy)+' ✓</span>' : '₹'+Math.round(v.bestBuy);
+                vh+=`<tr style="font-size:0.76rem; background:var(--bg); border-bottom:1px solid var(--border);"><td style="padding:6px 9px 6px 24px;">${v.item}</td><td style="padding:6px; text-align:right;">₹${Math.round(v.curBuy)}</td><td style="padding:6px; text-align:right;">${bestCell}</td><td style="padding:6px; text-align:right;">₹${Math.round(v.sell)}</td><td style="padding:6px; text-align:right;">${v.margin.toFixed(1)}%</td><td style="padding:6px; text-align:right; color:var(--primary-dark); font-weight:700;">₹${needBuy}</td><td style="padding:6px; text-align:center;">${tr}</td></tr>`;
               });
               const caret = r.vars.length ? ' <span style="color:var(--text-muted); font-weight:400;">▾</span>' : '';
               return `<tr ${r.vars.length?`onclick="toggleCockpit(${i})" style="cursor:pointer; `:'style="'}border-bottom:1px solid var(--border); background:${bg};">
