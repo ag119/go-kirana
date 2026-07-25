@@ -2015,10 +2015,17 @@
             const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; return {std, orders:oc, avgUnits: oc? s.qty/oc : 0, costUnit: s.qty? s.cost/s.qty : 0, rev:s.rev, margin: s.rev ? 100*s.prof/s.rev : 0}; }).sort((a,b)=>b.rev-a.rev);
             if(!rows.length){ container.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No orders in the last 30 days.</p>'; return; }
             const totRev=rows.reduce((a,r)=>a+r.rev,0);
-            container.innerHTML=`<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            const invCut=totRev*0.9; let invHot=0; { let c=0; for(const r of rows){ if(c<invCut) invHot++; c+=r.rev; } }
+            const hotBg='var(--primary-light)';
+            let invCum=0;
+            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items making up 90% of revenue (your must-keep-in-stock core)</div>
+            <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
             <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:center;">Avg units/order</th><th style="padding:9px; text-align:right;">Avg cost/unit</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th></tr></thead><tbody>`
-            + rows.map((r,i)=>`<tr style="border-bottom:1px solid var(--border);">
+            + rows.map((r,i)=>{
+              const hot = invCum < invCut; invCum += r.rev;
+              const bg = hot ? hotBg : 'transparent';
+              return `<tr style="border-bottom:1px solid var(--border); background:${bg};">
             <td style="padding:9px; color:var(--text-muted);">${i+1}</td>
             <td style="padding:9px; font-weight:700;">${r.std}</td>
             <td style="padding:9px; text-align:center;">${r.orders}</td>
@@ -2026,9 +2033,9 @@
             <td style="padding:9px; text-align:right;">₹${r.costUnit>=100?Math.round(r.costUnit).toLocaleString('en-IN'):r.costUnit.toFixed(1)}</td>
             <td style="padding:9px; text-align:right;">₹${Math.round(r.rev).toLocaleString('en-IN')}</td>
             <td style="padding:9px; text-align:right;">${(100*r.rev/totRev).toFixed(1)}%</td>
-            <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td></tr>`).join('')
+            <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td></tr>`;}).join('')
             + `</tbody></table></div>
-            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · total revenue ₹${Math.round(totRev).toLocaleString('en-IN')} in the window</div>`;
+            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · total revenue ₹${Math.round(totRev).toLocaleString('en-IN')} · ${invHot} items = 90% of it</div>`;
         }
 
         function switchTab(tabId) {
