@@ -2021,7 +2021,7 @@
             container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items making up 90% of revenue (your must-keep-in-stock core)</div>
             <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
-            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:center;">Avg units/order</th><th style="padding:9px; text-align:right;">Avg cost/unit</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th></tr></thead><tbody>`
+            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th></tr></thead><tbody>`
             + rows.map((r,i)=>{
               const hot = invCum < invCut; invCum += r.rev;
               const bg = hot ? hotBg : 'transparent';
@@ -2029,8 +2029,6 @@
             <td style="padding:9px; color:var(--text-muted);">${i+1}</td>
             <td style="padding:9px; font-weight:700;">${r.std}</td>
             <td style="padding:9px; text-align:center;">${r.orders}</td>
-            <td style="padding:9px; text-align:center;">${r.avgUnits.toFixed(1)}</td>
-            <td style="padding:9px; text-align:right;">₹${r.costUnit>=100?Math.round(r.costUnit).toLocaleString('en-IN'):r.costUnit.toFixed(1)}</td>
             <td style="padding:9px; text-align:right;">₹${Math.round(r.rev).toLocaleString('en-IN')}</td>
             <td style="padding:9px; text-align:right;">${(100*r.rev/totRev).toFixed(1)}%</td>
             <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td></tr>`;}).join('')
