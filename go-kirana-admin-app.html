@@ -728,7 +728,6 @@
             <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
             <button class="pill-btn" onclick="switchTab('shopInsightsTab')">🧾 Shop Insights</button>
             <button class="pill-btn" onclick="switchTab('inventoryTab')">🧭 Inventory Guide</button>
-            <button class="pill-btn" onclick="switchTab('cockpitTab')">🎯 Margin Cockpit</button>
             <button class="pill-btn" onclick="switchTab('ordersTab')">📦 All Orders Stream</button>
         </div>
 
@@ -904,13 +903,6 @@
             </div>
             <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">Store-wide demand over the last 30 days — what's moving, what it earns. Ordered by total revenue.</p>
             <div id="invGuideBody"></div>
-        </div>
-
-        <!-- TAB: MARGIN COCKPIT -->
-        <div id="cockpitTab" class="tab-content">
-            <div class="section-title"><span>🎯 Margin Cockpit</span><span style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">target 4% on every product</span></div>
-            <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">How far each product is from a 4% margin, the ₹ it's costing you, and which lever closes the gap. Tap any row for variant buy/sell detail.</p>
-            <div id="cockpitBody"></div>
         </div>
 
         <!-- TAB 6: ALL ORDERS STREAM -->
@@ -1127,7 +1119,6 @@
                 buildInsightIndex();
                 renderShopInsightSelect();
                 renderInventoryGuide();
-                renderMarginCockpit();
 
                 status.className = 'status-success';
                 status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
@@ -2013,114 +2004,58 @@
             const container=document.getElementById('invGuideBody');
             const rangeLbl=document.getElementById('invGuideRange');
             if(!container) return;
-            const oidDate={};
-            rawOrders.forEach(o=>{ const id=String(o['Id']||o['Order ID']||'').trim(); const ds=String(o['Order Date']||'').trim(); oidDate[id]= ds ? new Date(ds) : null; });
+            const TARGET=4.0;
+            const oidDate={}, oidDateStr={};
+            rawOrders.forEach(o=>{ const id=String(o['Id']||o['Order ID']||'').trim(); const ds=String(o['Order Date']||'').trim(); oidDate[id]= ds ? new Date(ds) : null; oidDateStr[id]=ds; });
             const today=new Date();
             const cutoff=new Date(today.getTime()-30*24*3600*1000);
             const fmt=d=>d.toISOString().slice(0,10);
             if(rangeLbl) rangeLbl.innerText=`Last 30 days · ${fmt(cutoff)} → ${fmt(today)}`;
             const g={};
-            II.lines.forEach(l=>{ const d=oidDate[l.oid]; if(!d || isNaN(d) || d<cutoff) return; const s=g[l.std]=g[l.std]||{orders:new Set(), rev:0, prof:0, qty:0, cost:0}; s.orders.add(l.oid); s.rev+=l.rev; s.prof+=l.rev*(l.mp/100); s.qty+=l.qty; s.cost+=l.rev*(1-l.mp/100); });
-            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; return {std, orders:oc, avgUnits: oc? s.qty/oc : 0, costUnit: s.qty? s.cost/s.qty : 0, rev:s.rev, margin: s.rev ? 100*s.prof/s.rev : 0}; }).sort((a,b)=>b.rev-a.rev);
+            II.lines.forEach(l=>{ const d=oidDate[l.oid]; if(!d || isNaN(d) || d<cutoff) return; const s=g[l.std]=g[l.std]||{orders:new Set(), rev:0, prof:0}; s.orders.add(l.oid); s.rev+=l.rev; s.prof+=l.rev*(l.mp/100); });
+            // variant detail per product (all history)
+            const bySku={};
+            rawProducts.forEach(p=>{ const sku=(p['SKU']||'').trim(); if(!sku) return; bySku[sku]={std:p['Standard Name']||p['Item Name']||sku, item:p['Item Name']||p['Standard Name']||sku, buy:toNum(p['Actual Price']), sell:toNum(p['Price per Unit'])}; });
+            const skuBuys={};
+            rawOrderItems.forEach(i=>{ const sku=(i['SKU']||'').trim(); if(!bySku[sku]) return; const b=toNum(i['Actual Price']); if(b>0){ (skuBuys[sku]=skuBuys[sku]||[]).push({d:oidDateStr[String(i['Order ID']||i['Id']||'').trim()]||'', b:b}); } });
+            const variants={};
+            Object.keys(bySku).forEach(sku=>{ const pr=bySku[sku]; const sb=(skuBuys[sku]||[]).slice().sort((a,b)=>a.d.localeCompare(b.d)); const curBuy=sb.length?sb[sb.length-1].b:pr.buy; const bestBuy=sb.length?Math.min.apply(null,sb.map(x=>x.b)):pr.buy; const firstBuy=sb.length?sb[0].b:pr.buy; const margin=pr.sell>0?100*(pr.sell-curBuy)/pr.sell:0; const trend=curBuy>firstBuy+0.01?'up':(curBuy<firstBuy-0.01?'down':'flat'); (variants[pr.std]=variants[pr.std]||[]).push({item:pr.item, curBuy, bestBuy, sell:pr.sell, margin, trend}); });
+            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; const margin= s.rev ? 100*s.prof/s.rev : 0; const gap=Math.max(0,TARGET-margin); return {std, orders:oc, rev:s.rev, margin, gap, impact: gap/100*s.rev, vars: variants[std]||[]}; }).sort((a,b)=>b.rev-a.rev);
             if(!rows.length){ container.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No orders in the last 30 days.</p>'; return; }
             const totRev=rows.reduce((a,r)=>a+r.rev,0);
+            const totGap=rows.reduce((a,r)=>a+r.impact,0);
             const invCut=totRev*0.9; let invHot=0; { let c=0; for(const r of rows){ if(c<invCut) invHot++; c+=r.rev; } }
             const hotBg='var(--primary-light)';
             let invCum=0;
-            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items making up 90% of revenue (your must-keep-in-stock core)</div>
+            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items making up 90% of revenue · Gap = ${TARGET}% − margin · ₹ = money left on the table · tap a row for variant buy/sell detail</div>
             <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
-            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th></tr></thead><tbody>`
+            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th><th style="padding:9px; text-align:right;">Gap to ${TARGET}%</th><th style="padding:9px; text-align:right;">₹ impact</th></tr></thead><tbody>`
             + rows.map((r,i)=>{
               const hot = invCum < invCut; invCum += r.rev;
               const bg = hot ? hotBg : 'transparent';
-              return `<tr style="border-bottom:1px solid var(--border); background:${bg};">
+              let vh='';
+              r.vars.forEach(v=>{
+                const tr = v.trend==='down'?'<span style="color:#15803d;">↓ cheaper</span>':(v.trend==='up'?'<span style="color:#b91c1c;">↑ dearer</span>':'<span style="color:var(--text-muted);">→ flat</span>');
+                const bargain = v.bestBuy<v.curBuy-0.01?' <span style="color:#15803d;">(best ₹'+Math.round(v.bestBuy)+')</span>':'';
+                vh+=`<tr style="font-size:0.76rem; background:var(--bg); border-bottom:1px solid var(--border);"><td style="padding:6px 9px 6px 24px;">${v.item}</td><td style="padding:6px; text-align:right;">buy ₹${Math.round(v.curBuy)}${bargain}</td><td style="padding:6px; text-align:right;">sell ₹${Math.round(v.sell)}</td><td style="padding:6px; text-align:right;">${v.margin.toFixed(1)}%</td><td style="padding:6px; text-align:center;">${tr}</td></tr>`;
+              });
+              const caret = r.vars.length ? ' <span style="color:var(--text-muted); font-weight:400;">▾</span>' : '';
+              return `<tr ${r.vars.length?`onclick="toggleCockpit(${i})" style="cursor:pointer; `:'style="'}border-bottom:1px solid var(--border); background:${bg};">
             <td style="padding:9px; color:var(--text-muted);">${i+1}</td>
-            <td style="padding:9px; font-weight:700;">${r.std}</td>
+            <td style="padding:9px; font-weight:700;">${r.std}${caret}</td>
             <td style="padding:9px; text-align:center;">${r.orders}</td>
             <td style="padding:9px; text-align:right;">₹${Math.round(r.rev).toLocaleString('en-IN')}</td>
             <td style="padding:9px; text-align:right;">${(100*r.rev/totRev).toFixed(1)}%</td>
-            <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td></tr>`;}).join('')
+            <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td>
+            <td style="padding:9px; text-align:right; font-weight:700;">${r.gap.toFixed(1)}%</td>
+            <td style="padding:9px; text-align:right; font-weight:700;">₹${Math.round(r.impact).toLocaleString('en-IN')}</td></tr>`
+            + (r.vars.length?`<tr id="ck-${i}" style="display:none;"><td colspan="8" style="padding:0;"><table style="width:100%; border-collapse:collapse;"><tbody>${vh}</tbody></table></td></tr>`:'');}).join('')
             + `</tbody></table></div>
-            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · total revenue ₹${Math.round(totRev).toLocaleString('en-IN')} · ${invHot} items = 90% of it</div>`;
+            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · revenue ₹${Math.round(totRev).toLocaleString('en-IN')} · ${invHot} items = 90% · total gap to ${TARGET}% ≈ ₹${Math.round(totGap).toLocaleString('en-IN')}</div>`;
         }
 
-        function ckCard(label,val,color){ return `<div style="background:var(--bg); border-radius:12px; padding:12px 14px;"><div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:0.03em;">${label}</div><div style="font-size:1.3rem; font-weight:800; margin-top:4px; color:${color};">${val}</div></div>`; }
         function toggleCockpit(i){ var el=document.getElementById('ck-'+i); if(el) el.style.display = (el.style.display==='none'||!el.style.display) ? 'table-row' : 'none'; }
-
-        function renderMarginCockpit(){
-            const TARGET=4.0;
-            const box=document.getElementById('cockpitBody'); if(!box) return;
-            const bySku={};
-            rawProducts.forEach(p=>{ const sku=(p['SKU']||'').trim(); if(!sku) return;
-                bySku[sku]={sku, std:p['Standard Name']||p['Item Name']||sku, item:p['Item Name']||p['Standard Name']||sku,
-                    buy:toNum(p['Actual Price']), sell:toNum(p['Price per Unit']), mrp:toNum(p['MRP']), upp:toNum(p['Units per Package'])||1}; });
-            const oidDate={}; rawOrders.forEach(o=>{ oidDate[String(o['Id']||o['Order ID']||'').trim()]=String(o['Order Date']||'').trim(); });
-            const hist={};
-            rawOrderItems.forEach(i=>{ const sku=(i['SKU']||'').trim(); if(!bySku[sku]) return;
-                const h=hist[sku]=hist[sku]||{buys:[], rev:0};
-                const b=toNum(i['Actual Price']); if(b>0) h.buys.push({d:oidDate[String(i['Order ID']||i['Id']||'').trim()]||'', b:b});
-                h.rev+=toNum(i['Calculated Total']); });
-            const prods={};
-            Object.keys(bySku).forEach(sku=>{ const pr=bySku[sku];
-                const g=prods[pr.std]=prods[pr.std]||{std:pr.std, vars:[], rev:0};
-                const h=hist[sku]||{buys:[],rev:0};
-                const sb=h.buys.slice().sort((a,b)=>a.d.localeCompare(b.d));
-                const curBuy=sb.length?sb[sb.length-1].b:pr.buy;
-                const bestBuy=sb.length?Math.min.apply(null,sb.map(x=>x.b)):pr.buy;
-                const firstBuy=sb.length?sb[0].b:pr.buy;
-                const margin=pr.sell>0?100*(pr.sell-curBuy)/pr.sell:0;
-                const packMRP=pr.mrp*pr.upp;
-                let head=packMRP>pr.sell?100*(packMRP-pr.sell)/packMRP:NaN;
-                if(head>60) head=NaN;
-                const trend=curBuy>firstBuy+0.01?'up':(curBuy<firstBuy-0.01?'down':'flat');
-                g.vars.push({item:pr.item, curBuy, bestBuy, sell:pr.sell, margin, head, trend});
-                g.rev+=h.rev; });
-            let rows=Object.keys(prods).map(k=>{ const g=prods[k];
-                const c=catOf(g.std);
-                const best=Math.max.apply(null,g.vars.map(v=>v.margin));
-                const gap=Math.max(0,TARGET-best);
-                const impact=gap/100*g.rev;
-                const capped=(c==='Tobacco'||c==='Sugar/Salt');
-                const heads=g.vars.map(v=>isNaN(v.head)?-1:v.head); const bestHead=Math.max.apply(null,heads);
-                let lever = capped?'Capped':((bestHead>=gap&&bestHead>0)?'Raise sell':'Negotiate buy');
-                return {std:g.std, cat:c, vars:g.vars, nvar:g.vars.length, rev:g.rev, best:best, gap:gap, impact:impact, capped:capped, bestHead:bestHead, lever:lever};
-            }).filter(r=>r.rev>0).sort((a,b)=>b.impact-a.impact);
-            const totGap=rows.reduce((a,r)=>a+r.impact,0);
-            const capGap=rows.filter(r=>r.capped).reduce((a,r)=>a+r.impact,0);
-            const reachGap=totGap-capGap;
-            let html=`<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:16px;">
-              ${ckCard('Total gap to 4%','₹'+Math.round(totGap).toLocaleString('en-IN'),'#0f172a')}
-              ${ckCard('Reachable (FMCG)','₹'+Math.round(reachGap).toLocaleString('en-IN'),'#10b981')}
-              ${ckCard('Capped (tobacco/sugar)','₹'+Math.round(capGap).toLocaleString('en-IN'),'#f97316')}
-            </div>
-            <p style="font-size:0.78rem; color:var(--text-muted); margin-bottom:10px;">Gap = 4% − best variant margin · ₹ impact = gap × revenue (order history) · Lever: how to close it. Tap a row for variant detail.</p>
-            <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
-              <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
-              <th style="padding:8px;">Item</th><th style="padding:8px; text-align:center;">Cat</th><th style="padding:8px; text-align:center;">Var</th><th style="padding:8px; text-align:right;">Best margin</th><th style="padding:8px; text-align:right;">Target</th><th style="padding:8px; text-align:right;">Gap</th><th style="padding:8px; text-align:right;">₹ impact</th><th style="padding:8px;">Lever</th></tr></thead><tbody>`;
-            rows.forEach((r,idx)=>{
-                const lev = r.capped?siBadge('Capped','red'):(r.lever==='Raise sell'?siBadge('Raise sell'+(r.bestHead>0?' ('+Math.round(r.bestHead)+'% room)':''),'green'):siBadge('Negotiate buy','amber'));
-                html+=`<tr onclick="toggleCockpit(${idx})" style="border-bottom:1px solid var(--border); cursor:pointer;">
-                  <td style="padding:8px; font-weight:700;">${r.std} <span style="color:var(--text-muted); font-weight:400;">▾</span></td>
-                  <td style="padding:8px; text-align:center; color:var(--text-muted);">${r.cat}</td>
-                  <td style="padding:8px; text-align:center;">${r.nvar}</td>
-                  <td style="padding:8px; text-align:right;">${r.best.toFixed(1)}%</td>
-                  <td style="padding:8px; text-align:right; color:var(--text-muted);">${TARGET.toFixed(0)}%</td>
-                  <td style="padding:8px; text-align:right; font-weight:700;">${r.gap.toFixed(1)}%</td>
-                  <td style="padding:8px; text-align:right; font-weight:700;">₹${Math.round(r.impact).toLocaleString('en-IN')}</td>
-                  <td style="padding:8px;">${lev}</td></tr>`;
-                let vh='';
-                r.vars.forEach(v=>{
-                    const tr = v.trend==='down'?'<span style="color:#15803d;">↓ cheaper</span>':(v.trend==='up'?'<span style="color:#b91c1c;">↑ dearer</span>':'<span style="color:var(--text-muted);">→ flat</span>');
-                    const headTxt = isNaN(v.head)?'—':Math.round(v.head)+'%';
-                    const bargain = v.bestBuy<v.curBuy-0.01?' <span style="color:#15803d;">(best ₹'+Math.round(v.bestBuy)+')</span>':'';
-                    vh+=`<tr style="font-size:0.76rem; background:var(--bg); border-bottom:1px solid var(--border);"><td style="padding:6px 8px 6px 22px;">${v.item}</td><td style="padding:6px; text-align:right;">buy ₹${Math.round(v.curBuy)}${bargain}</td><td style="padding:6px; text-align:right;">sell ₹${Math.round(v.sell)}</td><td style="padding:6px; text-align:right;">${v.margin.toFixed(1)}%</td><td style="padding:6px; text-align:right;">shop room ${headTxt}</td><td style="padding:6px; text-align:center;">${tr}</td></tr>`;
-                });
-                html+=`<tr id="ck-${idx}" style="display:none;"><td colspan="8" style="padding:0;"><table style="width:100%; border-collapse:collapse;"><tbody>${vh}</tbody></table></td></tr>`;
-            });
-            html+=`</tbody></table></div>`;
-            box.innerHTML=html;
-        }
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
