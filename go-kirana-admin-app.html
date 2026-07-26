@@ -2012,7 +2012,7 @@
             const fmt=d=>d.toISOString().slice(0,10);
             if(rangeLbl) rangeLbl.innerText=`Last 30 days · ${fmt(cutoff)} → ${fmt(today)}`;
             const g={};
-            II.lines.forEach(l=>{ const d=oidDate[l.oid]; if(!d || isNaN(d) || d<cutoff) return; const s=g[l.std]=g[l.std]||{orders:new Set(), rev:0, prof:0}; s.orders.add(l.oid); s.rev+=l.rev; s.prof+=l.rev*(l.mp/100); });
+            II.lines.forEach(l=>{ const d=oidDate[l.oid]; if(!d || isNaN(d) || d<cutoff) return; const s=g[l.std]=g[l.std]||{orders:new Set(), rev:0, prof:0, cw:{}}; s.orders.add(l.oid); s.rev+=l.rev; s.prof+=l.rev*(l.mp/100); const wk=Math.floor((today-d)/(7*86400000)); (s.cw[l.cust]=s.cw[l.cust]||new Set()).add(wk); });
             // variant detail per product (all history)
             const bySku={};
             rawProducts.forEach(p=>{ const sku=(p['SKU']||'').trim(); if(!sku) return; bySku[sku]={std:p['Standard Name']||p['Item Name']||sku, item:p['Item Name']||p['Standard Name']||sku, buy:toNum(p['Actual Price']), sell:toNum(p['Price per Unit'])}; });
@@ -2020,21 +2020,20 @@
             rawOrderItems.forEach(i=>{ const sku=(i['SKU']||'').trim(); if(!bySku[sku]) return; const b=toNum(i['Actual Price']); if(b>0){ (skuBuys[sku]=skuBuys[sku]||[]).push({d:oidDateStr[String(i['Order ID']||i['Id']||'').trim()]||'', b:b}); } });
             const variants={};
             Object.keys(bySku).forEach(sku=>{ const pr=bySku[sku]; const sb=(skuBuys[sku]||[]).slice().sort((a,b)=>a.d.localeCompare(b.d)); const curBuy=sb.length?sb[sb.length-1].b:pr.buy; const bestBuy=sb.length?Math.min.apply(null,sb.map(x=>x.b)):pr.buy; const firstBuy=sb.length?sb[0].b:pr.buy; const margin=pr.sell>0?100*(pr.sell-curBuy)/pr.sell:0; const trend=curBuy>firstBuy+0.01?'up':(curBuy<firstBuy-0.01?'down':'flat'); (variants[pr.std]=variants[pr.std]||[]).push({item:pr.item, curBuy, bestBuy, sell:pr.sell, margin, trend}); });
-            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; const margin= s.rev ? 100*s.prof/s.rev : 0; const actual=s.prof; const potential=Math.max(margin,TARGET)/100*s.rev; return {std, orders:oc, rev:s.rev, margin, actual, potential, gapProfit: potential-actual, vars: variants[std]||[]}; }).sort((a,b)=>b.rev-a.rev);
+            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; const margin= s.rev ? 100*s.prof/s.rev : 0; const actual=s.prof; const potential=Math.max(margin,TARGET)/100*s.rev; const weekly=Object.keys(s.cw||{}).some(c=>s.cw[c].size>=4); return {std, orders:oc, rev:s.rev, margin, actual, potential, gapProfit: potential-actual, weekly, vars: variants[std]||[]}; }).sort((a,b)=>b.rev-a.rev);
             if(!rows.length){ container.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No orders in the last 30 days.</p>'; return; }
             const totRev=rows.reduce((a,r)=>a+r.rev,0);
             const totActual=rows.reduce((a,r)=>a+r.actual,0);
             const totPotential=rows.reduce((a,r)=>a+r.potential,0);
             const totGap=totPotential-totActual;
-            const invCut=totRev*0.9; let invHot=0; { let c=0; for(const r of rows){ if(c<invCut) invHot++; c+=r.rev; } }
+            const weeklyCount=rows.filter(r=>r.weekly).length;
             const hotBg='var(--primary-light)';
-            let invCum=0;
-            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items = 90% of revenue · Actual = profit now · Potential = profit at ${TARGET}% · Gap = the difference · tap a row for variant detail</div>
+            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = ${weeklyCount} weekly movers (ordered ~1×/week by at least one shopkeeper) · Actual = profit now · Potential = profit at ${TARGET}% · Gap = the difference · tap a row for variant detail</div>
             <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
             <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th><th style="padding:9px; text-align:right;">Actual profit</th><th style="padding:9px; text-align:right;">Potential (${TARGET}%)</th><th style="padding:9px; text-align:right;">Profit gap</th><th style="padding:9px; text-align:center;">At best buy?</th><th style="padding:9px; text-align:center;">Bulk helps?</th></tr></thead><tbody>`
             + rows.map((r,i)=>{
-              const hot = invCum < invCut; invCum += r.rev;
+              const hot = r.weekly;
               const bg = hot ? hotBg : 'transparent';
               let vh='';
               if(r.vars.length){
