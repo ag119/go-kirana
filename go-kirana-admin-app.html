@@ -2020,17 +2020,19 @@
             rawOrderItems.forEach(i=>{ const sku=(i['SKU']||'').trim(); if(!bySku[sku]) return; const b=toNum(i['Actual Price']); if(b>0){ (skuBuys[sku]=skuBuys[sku]||[]).push({d:oidDateStr[String(i['Order ID']||i['Id']||'').trim()]||'', b:b}); } });
             const variants={};
             Object.keys(bySku).forEach(sku=>{ const pr=bySku[sku]; const sb=(skuBuys[sku]||[]).slice().sort((a,b)=>a.d.localeCompare(b.d)); const curBuy=sb.length?sb[sb.length-1].b:pr.buy; const bestBuy=sb.length?Math.min.apply(null,sb.map(x=>x.b)):pr.buy; const firstBuy=sb.length?sb[0].b:pr.buy; const margin=pr.sell>0?100*(pr.sell-curBuy)/pr.sell:0; const trend=curBuy>firstBuy+0.01?'up':(curBuy<firstBuy-0.01?'down':'flat'); (variants[pr.std]=variants[pr.std]||[]).push({item:pr.item, curBuy, bestBuy, sell:pr.sell, margin, trend}); });
-            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; const margin= s.rev ? 100*s.prof/s.rev : 0; const gap=Math.max(0,TARGET-margin); return {std, orders:oc, rev:s.rev, margin, gap, impact: gap/100*s.rev, vars: variants[std]||[]}; }).sort((a,b)=>b.rev-a.rev);
+            const rows=Object.keys(g).map(std=>{ const s=g[std]; const oc=s.orders.size; const margin= s.rev ? 100*s.prof/s.rev : 0; const actual=s.prof; const potential=Math.max(margin,TARGET)/100*s.rev; return {std, orders:oc, rev:s.rev, margin, actual, potential, gapProfit: potential-actual, vars: variants[std]||[]}; }).sort((a,b)=>b.rev-a.rev);
             if(!rows.length){ container.innerHTML='<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No orders in the last 30 days.</p>'; return; }
             const totRev=rows.reduce((a,r)=>a+r.rev,0);
-            const totGap=rows.reduce((a,r)=>a+r.impact,0);
+            const totActual=rows.reduce((a,r)=>a+r.actual,0);
+            const totPotential=rows.reduce((a,r)=>a+r.potential,0);
+            const totGap=totPotential-totActual;
             const invCut=totRev*0.9; let invHot=0; { let c=0; for(const r of rows){ if(c<invCut) invHot++; c+=r.rev; } }
             const hotBg='var(--primary-light)';
             let invCum=0;
-            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items making up 90% of revenue · Gap = ${TARGET}% − margin · ₹ = money left on the table · tap a row for variant buy/sell detail</div>
+            container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items = 90% of revenue · Actual = profit now · Potential = profit at ${TARGET}% · Gap = the difference · tap a row for variant detail</div>
             <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
-            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th><th style="padding:9px; text-align:right;">Gap to ${TARGET}%</th><th style="padding:9px; text-align:right;">₹ impact</th></tr></thead><tbody>`
+            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th><th style="padding:9px; text-align:right;">Actual profit</th><th style="padding:9px; text-align:right;">Potential (${TARGET}%)</th><th style="padding:9px; text-align:right;">Profit gap</th></tr></thead><tbody>`
             + rows.map((r,i)=>{
               const hot = invCum < invCut; invCum += r.rev;
               const bg = hot ? hotBg : 'transparent';
@@ -2053,11 +2055,12 @@
             <td style="padding:9px; text-align:right;">₹${Math.round(r.rev).toLocaleString('en-IN')}</td>
             <td style="padding:9px; text-align:right;">${(100*r.rev/totRev).toFixed(1)}%</td>
             <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td>
-            <td style="padding:9px; text-align:right; font-weight:700;">${r.gap.toFixed(1)}%</td>
-            <td style="padding:9px; text-align:right; font-weight:700;">₹${Math.round(r.impact).toLocaleString('en-IN')}</td></tr>`
-            + (r.vars.length?`<tr id="ck-${i}" style="display:none;"><td colspan="8" style="padding:0;"><table style="width:100%; border-collapse:collapse;"><tbody>${vh}</tbody></table></td></tr>`:'');}).join('')
+            <td style="padding:9px; text-align:right;">₹${Math.round(r.actual).toLocaleString('en-IN')}</td>
+            <td style="padding:9px; text-align:right; color:var(--text-muted);">₹${Math.round(r.potential).toLocaleString('en-IN')}</td>
+            <td style="padding:9px; text-align:right; font-weight:700;">₹${Math.round(r.gapProfit).toLocaleString('en-IN')}</td></tr>`
+            + (r.vars.length?`<tr id="ck-${i}" style="display:none;"><td colspan="9" style="padding:0;"><table style="width:100%; border-collapse:collapse;"><tbody>${vh}</tbody></table></td></tr>`:'');}).join('')
             + `</tbody></table></div>
-            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · revenue ₹${Math.round(totRev).toLocaleString('en-IN')} · ${invHot} items = 90% · total gap to ${TARGET}% ≈ ₹${Math.round(totGap).toLocaleString('en-IN')}</div>`;
+            <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · profit now ₹${Math.round(totActual).toLocaleString('en-IN')} → ₹${Math.round(totPotential).toLocaleString('en-IN')} at ${TARGET}% · gap ₹${Math.round(totGap).toLocaleString('en-IN')}</div>`;
         }
 
         function toggleCockpit(i){ var el=document.getElementById('ck-'+i); if(el) el.style.display = (el.style.display==='none'||!el.style.display) ? 'table-row' : 'none'; }
