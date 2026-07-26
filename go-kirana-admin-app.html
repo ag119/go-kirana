@@ -2032,7 +2032,7 @@
             container.innerHTML=`<div style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;"><span style="display:inline-block; width:11px; height:11px; background:${hotBg}; border:1px solid var(--primary); border-radius:3px; vertical-align:-1px; margin-right:5px;"></span>Light green = top ${invHot} items = 90% of revenue · Actual = profit now · Potential = profit at ${TARGET}% · Gap = the difference · tap a row for variant detail</div>
             <div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
-            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th><th style="padding:9px; text-align:right;">Actual profit</th><th style="padding:9px; text-align:right;">Potential (${TARGET}%)</th><th style="padding:9px; text-align:right;">Profit gap</th></tr></thead><tbody>`
+            <th style="padding:9px;">#</th><th style="padding:9px;">Item</th><th style="padding:9px; text-align:center;">Orders</th><th style="padding:9px; text-align:right;">Revenue</th><th style="padding:9px; text-align:right;">Rev share</th><th style="padding:9px; text-align:right;">Margin %</th><th style="padding:9px; text-align:right;">Actual profit</th><th style="padding:9px; text-align:right;">Potential (${TARGET}%)</th><th style="padding:9px; text-align:right;">Profit gap</th><th style="padding:9px; text-align:center;">At best buy?</th></tr></thead><tbody>`
             + rows.map((r,i)=>{
               const hot = invCum < invCut; invCum += r.rev;
               const bg = hot ? hotBg : 'transparent';
@@ -2048,6 +2048,8 @@
                 vh+=`<tr style="font-size:0.76rem; background:var(--bg); border-bottom:1px solid var(--border);"><td style="padding:6px 9px 6px 24px;">${v.item}</td><td style="padding:6px; text-align:right;">₹${Math.round(v.curBuy)}</td><td style="padding:6px; text-align:right;">${bestCell}</td><td style="padding:6px; text-align:right;">₹${Math.round(v.sell)}</td><td style="padding:6px; text-align:right;">${v.margin.toFixed(1)}%</td><td style="padding:6px; text-align:right; color:var(--primary-dark); font-weight:700;">₹${needBuy}</td><td style="padding:6px; text-align:center;">${tr}</td></tr>`;
               });
               const caret = r.vars.length ? ' <span style="color:var(--text-muted); font-weight:400;">▾</span>' : '';
+              const allBest = r.vars.length ? r.vars.every(v=>v.curBuy<=v.bestBuy+0.01) : null;
+              const bestFlag = allBest===null ? '<span style="color:var(--text-muted);">—</span>' : (allBest ? siBadge('Yes','green') : siBadge('No','red'));
               return `<tr ${r.vars.length?`onclick="toggleCockpit(${i})" style="cursor:pointer; `:'style="'}border-bottom:1px solid var(--border); background:${bg};">
             <td style="padding:9px; color:var(--text-muted);">${i+1}</td>
             <td style="padding:9px; font-weight:700;">${r.std}${caret}</td>
@@ -2057,8 +2059,9 @@
             <td style="padding:9px; text-align:right;">${siPct(r.margin)}</td>
             <td style="padding:9px; text-align:right;">₹${Math.round(r.actual).toLocaleString('en-IN')}</td>
             <td style="padding:9px; text-align:right; color:var(--text-muted);">₹${Math.round(r.potential).toLocaleString('en-IN')}</td>
-            <td style="padding:9px; text-align:right; font-weight:700;">₹${Math.round(r.gapProfit).toLocaleString('en-IN')}</td></tr>`
-            + (r.vars.length?`<tr id="ck-${i}" style="display:none;"><td colspan="9" style="padding:0;"><table style="width:100%; border-collapse:collapse;"><tbody>${vh}</tbody></table></td></tr>`:'');}).join('')
+            <td style="padding:9px; text-align:right; font-weight:700;">₹${Math.round(r.gapProfit).toLocaleString('en-IN')}</td>
+            <td style="padding:9px; text-align:center;">${bestFlag}</td></tr>`
+            + (r.vars.length?`<tr id="ck-${i}" style="display:none;"><td colspan="10" style="padding:0;"><table style="width:100%; border-collapse:collapse;"><tbody>${vh}</tbody></table></td></tr>`:'');}).join('')
             + `</tbody></table></div>
             <div style="font-size:0.8rem; color:var(--text-secondary); font-weight:700; margin-top:10px;">${rows.length} items · profit now ₹${Math.round(totActual).toLocaleString('en-IN')} → ₹${Math.round(totPotential).toLocaleString('en-IN')} at ${TARGET}% · gap ₹${Math.round(totGap).toLocaleString('en-IN')}</div>`;
         }
