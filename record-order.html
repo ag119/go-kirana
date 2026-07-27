@@ -275,7 +275,7 @@
                         <th style="text-align:center; width:140px;">Quantity</th>
                         <th style="text-align:right; width:130px;">Unit Price (₹)</th>
                         <th style="text-align:right; width:130px;">Calculated Total</th>
-                        <th style="text-align:right; width:140px;">Actual Price / Cost (₹)</th>
+                        <th style="text-align:right; width:140px;">Actual Price (₹)</th>
                         <th style="text-align:right; width:130px;">Actual Cost Total</th>
                         <th style="text-align:center; width:70px;">Remove</th>
                     </tr>
@@ -371,7 +371,6 @@
                 r.c.forEach((cell, idx) => {
                     const colName = cols[idx];
                     if (colName) {
-                        // Prefer raw cell value (cell.v) if cell.f exists, to preserve exact numbers
                         rowObj[colName] = cell ? (cell.v !== undefined && cell.v !== null ? cell.v : cell.f) : '';
                     }
                 });
@@ -387,7 +386,6 @@
             return isNaN(parsed) ? 0 : parsed;
         }
 
-        // Helper to get property value ignoring key casing/whitespace
         function getPropertyValue(obj, keyName) {
             if (obj[keyName] !== undefined) return obj[keyName];
             const targetKey = keyName.toLowerCase().replace(/\s+/g, '');
@@ -430,10 +428,7 @@
                     const sku = (getPropertyValue(p, 'SKU') || '').toString().trim();
                     const name = getPropertyValue(p, 'Item Name') || getPropertyValue(p, 'Standard Name') || getPropertyValue(p, 'Name') || sku;
                     
-                    // Selling Price Lookup
                     const price = parseNumber(getPropertyValue(p, 'Price per Unit') || getPropertyValue(p, 'Price') || getPropertyValue(p, 'Unit Price') || getPropertyValue(p, 'Selling Price'));
-                    
-                    // Direct "Actual Price" Lookup
                     const costPrice = parseNumber(getPropertyValue(p, 'Actual Price') || getPropertyValue(p, 'Actual Cost') || getPropertyValue(p, 'Cost Price') || getPropertyValue(p, 'Cost') || getPropertyValue(p, 'Purchase Price') || getPropertyValue(p, 'Unit Cost'));
 
                     if (sku || name) {
@@ -719,12 +714,11 @@
                 deliveryCharge: delCharge,
                 damageCost: damageCost,
                 items: sheetOrderCart.map(i => ({
-                    sku: i.sku || '',
-                    itemName: i.name,
+                    sku: i.sku || 'CUSTOM',
                     quantity: i.qty,
                     unitPrice: i.unitPrice,
-                    calculatedTotal: (i.qty * i.unitPrice),
                     actualPrice: i.costPrice,
+                    calculatedTotal: (i.qty * i.unitPrice),
                     actualCost: (i.qty * i.costPrice)
                 }))
             };
@@ -758,7 +752,7 @@
                 }
             } catch (err) {
                 console.error(err);
-                alert(`⚠️ Order submitted successfully. Syncing sheet...`);
+                alert(`⚠️ Request sent. Refreshing sheet data...`);
                 sheetOrderCart = [];
                 document.getElementById('orderCustInput').value = '';
                 document.getElementById('selectedCustId').value = '';
