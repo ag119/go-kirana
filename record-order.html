@@ -370,10 +370,33 @@
                 const rowObj = {};
                 r.c.forEach((cell, idx) => {
                     const colName = cols[idx];
-                    if (colName) rowObj[colName] = cell ? (cell.f !== undefined ? cell.f : cell.v) : '';
+                    if (colName) {
+                        // Prefer raw cell value (cell.v) if cell.f exists, to preserve exact numbers
+                        rowObj[colName] = cell ? (cell.v !== undefined && cell.v !== null ? cell.v : cell.f) : '';
+                    }
                 });
                 return rowObj;
             });
+        }
+
+        function parseNumber(val) {
+            if (val === undefined || val === null || val === '') return 0;
+            if (typeof val === 'number') return val;
+            const cleanStr = String(val).replace(/[^0-9.-]+/g, '');
+            const parsed = parseFloat(cleanStr);
+            return isNaN(parsed) ? 0 : parsed;
+        }
+
+        // Helper to get property value ignoring key casing/whitespace
+        function getPropertyValue(obj, keyName) {
+            if (obj[keyName] !== undefined) return obj[keyName];
+            const targetKey = keyName.toLowerCase().replace(/\s+/g, '');
+            for (let k in obj) {
+                if (k.toLowerCase().replace(/\s+/g, '') === targetKey) {
+                    return obj[k];
+                }
+            }
+            return undefined;
         }
 
         async function fetchLiveData(forceBust = false) {
@@ -404,15 +427,26 @@
                 productMapByNameAndPrice = {};
 
                 prods.forEach(p => {
-                    const sku = (p['SKU'] || '').trim();
-                    const name = p['Item Name'] || p['Standard Name'] || sku;
-                    const price = parseFloat(p['Price per Unit'] || 0);
-                    const costPrice = parseFloat(p['Cost Price'] || p['Cost'] || p['Purchase Price'] || 0);
+                    const sku = (getPropertyValue(p, 'SKU') || '').toString().trim();
+                    const name = getPropertyValue(p, 'Item Name') || getPropertyValue(p, 'Standard Name') || getPropertyValue(p, 'Name') || sku;
+                    
+                    // Selling Price Lookup
+                    const price = parseNumber(getPropertyValue(p, 'Price per Unit') || getPropertyValue(p, 'Price') || getPropertyValue(p, 'Unit Price') || getPropertyValue(p, 'Selling Price'));
+                    
+                    // Direct "Actual Price" Lookup
+                    const costPrice = parseNumber(getPropertyValue(p, 'Actual Price') || getPropertyValue(p, 'Actual Cost') || getPropertyValue(p, 'Cost Price') || getPropertyValue(p, 'Cost') || getPropertyValue(p, 'Purchase Price') || getPropertyValue(p, 'Unit Cost'));
 
-                    if (sku) {
-                        productMapBySKU[sku] = { sku, name, price, costPrice };
+                    if (sku || name) {
+                        const productObj = { sku, name, price, costPrice };
+                        
+                        if (sku) {
+                            productMapBySKU[sku.toLowerCase()] = productObj;
+                        }
+
                         const suggestionLabel = `${name} - ₹${price}`;
-                        productMapByNameAndPrice[suggestionLabel.toLowerCase()] = { sku, name, price, costPrice };
+                        productMapByNameAndPrice[suggestionLabel.toLowerCase()] = productObj;
+                        productMapByNameAndPrice[name.toLowerCase()] = productObj;
+
                         prodDatalist.innerHTML += `<option value="${suggestionLabel}"></option>`;
                     }
                 });
@@ -431,9 +465,9 @@
             const hiddenName = document.getElementById('selectedCustName');
 
             let found = rawCustomers.find(c => {
-                const id = (c['Id'] || c['ID'] || '').trim();
-                const name = (c['Owner Name'] || '').trim();
-                const mobile = (c['Mobile Number'] || '').trim();
+                const id = (c['Id'] || c['ID'] || '').toString().trim();
+                const name = (c['Owner Name'] || '').toString().trim();
+                const mobile = (c['Mobile Number'] || '').toString().trim();
                 const comboStr = `${name} - ${mobile} [ID: ${id}]`.toLowerCase();
 
                 return comboStr === val.toLowerCase() ||
@@ -508,11 +542,13 @@
 
             if (productMapByNameAndPrice[val.toLowerCase()]) {
                 matched = productMapByNameAndPrice[val.toLowerCase()];
+            } else if (productMapBySKU[val.toLowerCase()]) {
+                matched = productMapBySKU[val.toLowerCase()];
             } else {
-                const found = Object.values(productMapBySKU).find(p => 
+                const found = Object.values(productMapByNameAndPrice).find(p => 
                     p.name.toLowerCase() === val.toLowerCase() ||
                     `${p.name} - ₹${p.price}`.toLowerCase() === val.toLowerCase() ||
-                    p.sku.toLowerCase() === val.toLowerCase()
+                    (p.sku && p.sku.toLowerCase() === val.toLowerCase())
                 );
                 if (found) matched = found;
             }
@@ -523,7 +559,7 @@
                     name: matched.name,
                     qty: qty,
                     unitPrice: matched.price,
-                    costPrice: matched.costPrice || 0
+                    costPrice: matched.costPrice
                 });
             } else {
                 sheetOrderCart.push({
