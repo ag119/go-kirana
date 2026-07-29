@@ -1457,30 +1457,59 @@
             return false;
         }
 
-        function filterPriceList() {
-            const q = document.getElementById('priceSearch').value.trim();
-            if (!q) {
-                renderPriceList(rawProducts);
-                return;
-            }
+        function getMatchScore(product, query) {
+    if (!query) return 0;
+    
+    const q = query.toLowerCase().trim();
+    const sku = (product['SKU'] || '').toLowerCase().trim();
+    const name = (product['Item Name'] || product['Standard Name'] || '').toLowerCase().trim();
+    const rawKeywords = (product['Search Keywords'] || product['Keywords'] || '').toLowerCase().trim();
+    const keywords = rawKeywords.split(',').map(k => k.trim());
 
-            const filtered = rawProducts.filter(p => {
-                const sku = (p['SKU'] || '').toLowerCase();
-                const name = (p['Item Name'] || p['Standard Name'] || '').toLowerCase();
-                const rawKeywords = (p['Search Keywords'] || p['Keywords'] || '').toLowerCase();
-                const keywords = rawKeywords.split(',').map(k => k.trim());
+    // 1. Highest Priority: Item Name or SKU Starts With / Exact Match
+    if (name === q || sku === q) return 100;
+    if (name.startsWith(q) || sku.startsWith(q)) return 90;
 
-                if (fuzzyMatch(name, q) || fuzzyMatch(sku, q)) return true;
+    // 2. High Priority: Item Name contains word matching query
+    const nameWords = name.split(/[\s,]+/);
+    if (nameWords.some(w => w === q)) return 80;
+    if (nameWords.some(w => w.startsWith(q))) return 70;
+    if (name.includes(q)) return 60;
 
-                for (let kw of keywords) {
-                    if (kw && fuzzyMatch(kw, q)) return true;
-                }
+    // 3. Medium Priority: Keyword Matches
+    for (let kw of keywords) {
+        if (!kw) continue;
+        if (kw === q) return 55;
+        if (kw.startsWith(q)) return 50;
+        if (kw.includes(q)) return 40;
+    }
 
-                return false;
-            });
+    // 4. Low Priority: Fuzzy Distance Match (for minor typos)
+    if (fuzzyMatch(name, q) || fuzzyMatch(sku, q)) return 20;
+    for (let kw of keywords) {
+        if (kw && fuzzyMatch(kw, q)) return 15;
+    }
 
-            renderPriceList(filtered);
-        }
+    return 0; // No match
+}
+
+function filterPriceList() {
+    const q = document.getElementById('priceSearch').value.trim();
+    
+    if (!q) {
+        renderPriceList(rawProducts);
+        return;
+    }
+
+    // Calculate score for every item, filter out non-matches (score 0), and sort by score descending
+    const scoredProducts = rawProducts
+        .map(p => ({ product: p, score: getMatchScore(p, q) }))
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map(item => item.product);
+
+    renderPriceList(scoredProducts);
+}
 
         function renderPriceList(prods) {
             const container = document.getElementById('priceListCardsContainer');
