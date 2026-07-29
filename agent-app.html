@@ -1151,7 +1151,6 @@
         }
 
         async function validateUserCredentials(username, password) {
-            // Validate via Dedicated Standalone Login Web App
             if (LOGIN_WEB_APP_URL && !LOGIN_WEB_APP_URL.includes('YOUR_LOGIN_WEB_APP_URL')) {
                 try {
                     const res = await fetch(LOGIN_WEB_APP_URL, {
@@ -1170,7 +1169,6 @@
                 }
             }
 
-            // Fallback direct JSONP lookup from "Users" sheet tab
             try {
                 const usersData = await fetchSheetDataJSONP('Users', true);
                 if (usersData && usersData.length) {
@@ -1248,7 +1246,6 @@
                 rawOrderItems = items;
                 rawProducts = prods;
 
-                // Build catalog mappings
                 const datalist = document.getElementById('productListDatalist');
                 datalist.innerHTML = '';
                 productMapBySKU = {};
@@ -1416,7 +1413,7 @@
             }).join('');
         }
 
-        // --- FUZZY SEARCH & KEYWORD MATCHING ---
+        // --- RELEVANCE SEARCH & FUZZY MATCHING HELPERS ---
         function levenshteinDistance(a, b) {
             if (a.length === 0) return b.length;
             if (b.length === 0) return a.length;
@@ -1458,58 +1455,83 @@
         }
 
         function getMatchScore(product, query) {
-    if (!query) return 0;
-    
-    const q = query.toLowerCase().trim();
-    const sku = (product['SKU'] || '').toLowerCase().trim();
-    const name = (product['Item Name'] || product['Standard Name'] || '').toLowerCase().trim();
-    const rawKeywords = (product['Search Keywords'] || product['Keywords'] || '').toLowerCase().trim();
-    const keywords = rawKeywords.split(',').map(k => k.trim());
+            if (!query) return 0;
+            
+            const q = query.toLowerCase().trim();
+            const sku = (product['SKU'] || '').toLowerCase().trim();
+            const name = (product['Item Name'] || product['Standard Name'] || '').toLowerCase().trim();
+            const rawKeywords = (product['Search Keywords'] || product['Keywords'] || '').toLowerCase().trim();
+            const keywords = rawKeywords.split(',').map(k => k.trim());
 
-    // 1. Highest Priority: Item Name or SKU Starts With / Exact Match
-    if (name === q || sku === q) return 100;
-    if (name.startsWith(q) || sku.startsWith(q)) return 90;
+            // 1. Highest Priority: Item Name or SKU Exact Match / Starts With
+            if (name === q || sku === q) return 100;
+            if (name.startsWith(q) || sku.startsWith(q)) return 90;
 
-    // 2. High Priority: Item Name contains word matching query
-    const nameWords = name.split(/[\s,]+/);
-    if (nameWords.some(w => w === q)) return 80;
-    if (nameWords.some(w => w.startsWith(q))) return 70;
-    if (name.includes(q)) return 60;
+            // 2. High Priority: Item Name contains word matching query
+            const nameWords = name.split(/[\s,]+/);
+            if (nameWords.some(w => w === q)) return 80;
+            if (nameWords.some(w => w.startsWith(q))) return 70;
+            if (name.includes(q)) return 60;
 
-    // 3. Medium Priority: Keyword Matches
-    for (let kw of keywords) {
-        if (!kw) continue;
-        if (kw === q) return 55;
-        if (kw.startsWith(q)) return 50;
-        if (kw.includes(q)) return 40;
-    }
+            // 3. Medium Priority: Search Keywords Matches
+            for (let kw of keywords) {
+                if (!kw) continue;
+                if (kw === q) return 55;
+                if (kw.startsWith(q)) return 50;
+                if (kw.includes(q)) return 40;
+            }
 
-    // 4. Low Priority: Fuzzy Distance Match (for minor typos)
-    if (fuzzyMatch(name, q) || fuzzyMatch(sku, q)) return 20;
-    for (let kw of keywords) {
-        if (kw && fuzzyMatch(kw, q)) return 15;
-    }
+            // 4. Low Priority: Fuzzy Distance Match
+            if (fuzzyMatch(name, q) || fuzzyMatch(sku, q)) return 20;
+            for (let kw of keywords) {
+                if (kw && fuzzyMatch(kw, q)) return 15;
+            }
 
-    return 0; // No match
-}
+            return 0;
+        }
 
-function filterPriceList() {
-    const q = document.getElementById('priceSearch').value.trim();
-    
-    if (!q) {
-        renderPriceList(rawProducts);
-        return;
-    }
+        function findBestProductMatch(query) {
+            if (!query) return null;
+            
+            let bestProduct = null;
+            let highestScore = 0;
 
-    // Calculate score for every item, filter out non-matches (score 0), and sort by score descending
-    const scoredProducts = rawProducts
-        .map(p => ({ product: p, score: getMatchScore(p, q) }))
-        .filter(item => item.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .map(item => item.product);
+            rawProducts.forEach(p => {
+                const score = getMatchScore(p, query);
+                if (score > highestScore) {
+                    highestScore = score;
+                    bestProduct = p;
+                }
+            });
 
-    renderPriceList(scoredProducts);
-}
+            if (bestProduct && highestScore > 0) {
+                const sku = (bestProduct['SKU'] || '').trim();
+                const name = bestProduct['Item Name'] || bestProduct['Standard Name'] || sku;
+                const price = parseFloat(bestProduct['Price per Unit'] || bestProduct['Price'] || 0);
+                const costPrice = parseFloat(bestProduct['Cost Price'] || bestProduct['Actual Price'] || bestProduct['Cost'] || 0);
+
+                return { sku, name, price, costPrice };
+            }
+
+            return null;
+        }
+
+        function filterPriceList() {
+            const q = document.getElementById('priceSearch').value.trim();
+            
+            if (!q) {
+                renderPriceList(rawProducts);
+                return;
+            }
+
+            const scoredProducts = rawProducts
+                .map(p => ({ product: p, score: getMatchScore(p, q) }))
+                .filter(item => item.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .map(item => item.product);
+
+            renderPriceList(scoredProducts);
+        }
 
         function renderPriceList(prods) {
             const container = document.getElementById('priceListCardsContainer');
@@ -1685,18 +1707,7 @@ function filterPriceList() {
 
             if (!inputVal) return;
 
-            let matched = null;
-
-            if (productMapByNameAndPrice[inputVal.toLowerCase()]) {
-                matched = productMapByNameAndPrice[inputVal.toLowerCase()];
-            } else {
-                const found = Object.values(productMapBySKU).find(p => 
-                    p.name.toLowerCase() === inputVal.toLowerCase() ||
-                    `${p.name} - ₹${p.price}`.toLowerCase() === inputVal.toLowerCase() ||
-                    p.sku.toLowerCase() === inputVal.toLowerCase()
-                );
-                if (found) matched = found;
-            }
+            const matched = findBestProductMatch(inputVal);
 
             if (matched) {
                 cartItems.push({
@@ -1804,18 +1815,7 @@ function filterPriceList() {
 
             if (!inputVal) return;
 
-            let matched = null;
-
-            if (productMapByNameAndPrice[inputVal.toLowerCase()]) {
-                matched = productMapByNameAndPrice[inputVal.toLowerCase()];
-            } else {
-                const found = Object.values(productMapBySKU).find(p => 
-                    p.name.toLowerCase() === inputVal.toLowerCase() ||
-                    `${p.name} - ₹${p.price}`.toLowerCase() === inputVal.toLowerCase() ||
-                    p.sku.toLowerCase() === inputVal.toLowerCase()
-                );
-                if (found) matched = found;
-            }
+            const matched = findBestProductMatch(inputVal);
 
             if (matched) {
                 newOrderCartItems.push({
@@ -1977,7 +1977,6 @@ function filterPriceList() {
             const targetTab = document.getElementById(tabId);
             if (targetTab) targetTab.classList.add('active');
 
-            // Sync navigation pills
             const buttons = document.querySelectorAll('#mainNavPills .pill-btn');
             buttons.forEach(btn => {
                 if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(tabId)) {
