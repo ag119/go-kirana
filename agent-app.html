@@ -767,16 +767,60 @@
             white-space: nowrap;
         }
 
-        .kw-badge {
-            font-size: 0.72rem;
-            background: #f1f5f9;
-            color: var(--text-muted);
-            padding: 2px 8px;
-            border-radius: 10px;
-            margin-top: 4px;
-            display: inline-block;
-            font-weight: 600;
+        /* Quantity Incrementor Control inside Price Card */
+        .qty-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 4px 8px;
         }
+
+        .qty-btn {
+            border: none;
+            background: var(--border);
+            color: var(--text-main);
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-weight: 800;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s ease;
+        }
+
+        .qty-btn:hover { background: #cbd5e1; }
+
+        .qty-input {
+            width: 36px;
+            text-align: center;
+            border: none;
+            background: transparent;
+            font-size: 0.95rem;
+            font-weight: 800;
+            outline: none;
+            color: var(--text-main);
+        }
+
+        .add-to-cart-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .add-to-cart-btn:hover { background: var(--primary-dark); }
 
         .analytics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
 
@@ -1095,6 +1139,7 @@
         
         let productMapBySKU = {};
         let productMapByNameAndPrice = {};
+        let cardQtyMap = {}; // Tracks qty per SKU on price list cards
         
         let processedCustomers = [];
         let activeOrderCustomer = null;
@@ -1493,7 +1538,6 @@
             let bestProduct = null;
             let highestScore = 0;
 
-            // Clean prompt text from option decorator if selected from datalist dropdown
             const cleanQuery = query.split(' (🏷️')[0].split(' - ₹')[0].trim();
 
             rawProducts.forEach(p => {
@@ -1516,7 +1560,6 @@
             return null;
         }
 
-        // Dynamically rank the input datalist drop-down list as the user types
         function updateDatalistSuggestions(query) {
             const datalist = document.getElementById('productListDatalist');
             if (!datalist) return;
@@ -1529,7 +1572,7 @@
                     .map(p => ({ product: p, score: getMatchScore(p, q) }))
                     .filter(item => item.score > 0)
                     .sort((a, b) => b.score - a.score)
-                    .slice(0, 15) // Limit dropdown to top 15 matches
+                    .slice(0, 15)
                     .map(item => item.product);
             }
 
@@ -1537,16 +1580,48 @@
                 const sku = (p['SKU'] || '').trim();
                 const name = p['Item Name'] || p['Standard Name'] || sku;
                 const price = parseFloat(p['Price per Unit'] || 0);
-                const keywords = (p['Search Keywords'] || p['Keywords'] || '').trim();
-
-                // If query matched a keyword instead of title, add tag hint to ensure browser keeps item visible
-                let displayLabel = `${name} - ₹${price}`;
-                if (q && !name.toLowerCase().includes(q) && keywords.toLowerCase().includes(q)) {
-                    displayLabel = `${name} (🏷️ ${keywords}) - ₹${price}`;
-                }
-
-                return `<option value="${displayLabel}"></option>`;
+                return `<option value="${name} - ₹${price}"></option>`;
             }).join('');
+        }
+
+        function adjustCardQty(sku, delta) {
+            const input = document.getElementById(`card-qty-${sku}`);
+            if (!input) return;
+            let val = parseInt(input.value) || 1;
+            val += delta;
+            if (val < 1) val = 1;
+            input.value = val;
+            cardQtyMap[sku] = val;
+        }
+
+        function addCardItemToCart(sku) {
+            const prod = productMapBySKU[sku];
+            if (!prod) return;
+
+            const qtyInput = document.getElementById(`card-qty-${sku}`);
+            const qty = qtyInput ? (parseInt(qtyInput.value) || 1) : 1;
+
+            // Depending on active context, add item to active order form
+            if (document.getElementById('orderFormModal').classList.contains('active')) {
+                cartItems.push({
+                    sku: prod.sku,
+                    name: prod.name,
+                    qty: qty,
+                    unitPrice: prod.price,
+                    costPrice: prod.costPrice || 0
+                });
+                renderCart();
+            } else {
+                newOrderCartItems.push({
+                    sku: prod.sku,
+                    name: prod.name,
+                    qty: qty,
+                    unitPrice: prod.price,
+                    costPrice: prod.costPrice || 0
+                });
+                renderNewOrderCart();
+                switchTab('newOrderTab');
+            }
         }
 
         function filterPriceList() {
@@ -1579,15 +1654,25 @@
                 const sku = p['SKU'] || '';
                 const name = p['Item Name'] || p['Standard Name'] || sku;
                 const price = p['Price per Unit'] || '0';
-                const keywords = (p['Search Keywords'] || p['Keywords'] || '').trim();
+                const currentQty = cardQtyMap[sku] || 1;
 
                 return `
                 <div class="price-card">
-                    <div>
+                    <div style="flex:1;">
                         <div class="price-card-name">${name}</div>
-                        ${keywords ? `<div class="kw-badge">🏷️ ${keywords}</div>` : ''}
                     </div>
-                    <div class="price-card-val">₹${price}</div>
+                    
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        <div class="price-card-val">₹${price}</div>
+                        
+                        <div class="qty-controls">
+                            <button class="qty-btn" onclick="adjustCardQty('${sku}', -1)">-</button>
+                            <input type="number" id="card-qty-${sku}" class="qty-input" value="${currentQty}" min="1" onchange="cardQtyMap['${sku}'] = parseInt(this.value) || 1">
+                            <button class="qty-btn" onclick="adjustCardQty('${sku}', 1)">+</button>
+                        </div>
+
+                        <button class="add-to-cart-btn" onclick="addCardItemToCart('${sku}')">➕ Add</button>
+                    </div>
                 </div>
                 `;
             }).join('');
