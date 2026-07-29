@@ -1493,8 +1493,11 @@
             let bestProduct = null;
             let highestScore = 0;
 
+            // Clean prompt text from option decorator if selected from datalist dropdown
+            const cleanQuery = query.split(' (🏷️')[0].split(' - ₹')[0].trim();
+
             rawProducts.forEach(p => {
-                const score = getMatchScore(p, query);
+                const score = getMatchScore(p, cleanQuery);
                 if (score > highestScore) {
                     highestScore = score;
                     bestProduct = p;
@@ -1519,11 +1522,14 @@
             if (!datalist) return;
 
             let listToRender = rawProducts;
-            if (query && query.trim()) {
+            const q = query ? query.trim().toLowerCase() : '';
+
+            if (q) {
                 listToRender = rawProducts
-                    .map(p => ({ product: p, score: getMatchScore(p, query.trim()) }))
+                    .map(p => ({ product: p, score: getMatchScore(p, q) }))
                     .filter(item => item.score > 0)
                     .sort((a, b) => b.score - a.score)
+                    .slice(0, 15) // Limit dropdown to top 15 matches
                     .map(item => item.product);
             }
 
@@ -1531,7 +1537,15 @@
                 const sku = (p['SKU'] || '').trim();
                 const name = p['Item Name'] || p['Standard Name'] || sku;
                 const price = parseFloat(p['Price per Unit'] || 0);
-                return `<option value="${name} - ₹${price}"></option>`;
+                const keywords = (p['Search Keywords'] || p['Keywords'] || '').trim();
+
+                // If query matched a keyword instead of title, add tag hint to ensure browser keeps item visible
+                let displayLabel = `${name} - ₹${price}`;
+                if (q && !name.toLowerCase().includes(q) && keywords.toLowerCase().includes(q)) {
+                    displayLabel = `${name} (🏷️ ${keywords}) - ₹${price}`;
+                }
+
+                return `<option value="${displayLabel}"></option>`;
             }).join('');
         }
 
