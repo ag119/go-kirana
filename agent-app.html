@@ -1,0 +1,1967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go-Kirana Operations Hub</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10b981;
+            --primary-dark: #059669;
+            --primary-light: #ecfdf5;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
+            --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.08);
+            --radius-lg: 16px;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            padding-bottom: 40px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* LOGIN OVERLAY STYLES */
+        #login-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(135deg, #064e3b 0%, #0f172a 100%);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
+            padding: 36px 32px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+
+        .login-card h2 {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 6px;
+        }
+
+        .login-card p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        .login-field {
+            text-align: left;
+            margin-bottom: 16px;
+        }
+
+        .login-field label {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: var(--text-main);
+        }
+
+        .login-field input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .login-field input:focus { border-color: var(--primary); }
+
+        .login-btn {
+            width: 100%;
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 30px;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            margin-top: 10px;
+            box-shadow: 0 4px 12px rgba(16,185,129,0.3);
+        }
+
+        .login-btn:hover { background: var(--primary-dark); }
+
+        #login-error-msg {
+            color: var(--accent-red);
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-top: 12px;
+            display: none;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, #064e3b 0%, #047857 100%);
+            color: white;
+            padding: 18px 24px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        }
+
+        .header-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+        }
+
+        .brand-icon {
+            font-size: 1.8rem;
+            background: rgba(255,255,255,0.15);
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-md);
+            backdrop-filter: blur(4px);
+        }
+
+        .brand-text h1 { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; }
+        .brand-text p { font-size: 0.75rem; opacity: 0.8; font-weight: 500; }
+
+        .header-actions { display: flex; gap: 10px; align-items: center; }
+
+        .sync-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .sync-btn:hover { background: white; color: var(--primary-dark); }
+
+        .logout-btn {
+            background: rgba(239, 68, 68, 0.25);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .logout-btn:hover { background: var(--accent-red); }
+
+        .container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 16px;
+        }
+
+        /* Status Toast */
+        #status-banner {
+            padding: 12px 18px;
+            margin-bottom: 20px;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: var(--shadow-sm);
+        }
+        .status-loading { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+        .status-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+        .status-error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+        /* Navigation Pills */
+        .nav-pills {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: none;
+        }
+        .nav-pills::-webkit-scrollbar { display: none; }
+
+        .pill-btn {
+            padding: 10px 20px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: 30px;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .pill-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* HOME PAGE GRID (4 CARDS) */
+        .home-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            max-width: 800px;
+            margin: 20px auto 40px auto;
+        }
+
+        @media (max-width: 600px) {
+            .home-grid { grid-template-columns: 1fr; }
+        }
+
+        .home-card {
+            background: var(--card-bg);
+            border: 2px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 32px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .home-card:hover {
+            transform: translateY(-6px);
+            border-color: var(--primary);
+            box-shadow: 0 12px 24px -4px rgba(16, 185, 129, 0.15);
+        }
+
+        .home-card-icon {
+            font-size: 3rem;
+            margin-bottom: 12px;
+            background: var(--primary-light);
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .home-card h3 {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 6px;
+        }
+
+        .home-card p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        /* Customer Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .customer-card {
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.25s ease;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        .customer-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+            border-color: var(--primary);
+        }
+
+        .rank-badge {
+            position: absolute;
+            top: 16px; right: 16px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: 20px;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .card-header-user {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 16px;
+            padding-right: 60px;
+        }
+
+        .avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: var(--primary-light);
+            color: var(--primary-dark);
+            font-weight: 800;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .user-info h3 { font-size: 1.05rem; font-weight: 800; color: var(--text-main); }
+        .user-info p { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; }
+
+        .score-pill-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #f1f5f9;
+            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            margin-bottom: 14px;
+        }
+
+        .score-val { font-size: 1.1rem; font-weight: 800; color: var(--primary-dark); }
+
+        .stats-badge-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            background: #f1f5f9;
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .badge.green { background: #dcfce7; color: #15803d; }
+        .badge.orange { background: #ffedd5; color: #c2410c; }
+        .badge.red { background: #fee2e2; color: #b91c1c; }
+
+        .card-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            background: var(--bg);
+            padding: 12px;
+            border-radius: var(--radius-md);
+            margin-bottom: 16px;
+        }
+
+        .metric-item span { display: block; font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        .metric-item strong { font-size: 0.95rem; font-weight: 800; color: var(--text-main); }
+
+        .card-footer-action {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--primary-dark);
+            border-top: 1px solid var(--border);
+            padding-top: 12px;
+            gap: 8px;
+        }
+
+        .btn-order {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 6px rgba(16,185,129,0.3);
+        }
+
+        .btn-order:hover { background: var(--primary-dark); }
+
+        .btn-analytics {
+            background: #e0e7ff;
+            color: #3730a3;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 20px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        /* Modal Overlay & Containers */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            display: none;
+            justify-content: center;
+            align-items: flex-end;
+        }
+
+        @media (min-width: 640px) {
+            .modal-overlay { align-items: center; padding: 20px; }
+        }
+
+        .modal-overlay.active { display: flex; }
+
+        .modal-container {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 680px;
+            max-height: 90vh;
+            border-radius: 24px 24px 0 0;
+            overflow-y: auto;
+            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 24px;
+        }
+
+        @media (min-width: 640px) {
+            .modal-container { border-radius: var(--radius-lg); }
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+        }
+
+        .modal-title h2 { font-size: 1.2rem; font-weight: 800; }
+        .modal-title p { font-size: 0.8rem; color: var(--text-muted); }
+
+        .close-btn {
+            background: #f1f5f9;
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1.1rem;
+        }
+
+        /* Recommendation Box */
+        .recommendation-box {
+            background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+            border: 1px solid #a7f3d0;
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .rec-title {
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: var(--primary-dark);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .rec-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .rec-chip {
+            background: white;
+            border: 1px solid #10b981;
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .prob-badge {
+            font-size: 0.7rem;
+            background: #dcfce7;
+            color: #15803d;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: 800;
+        }
+
+        /* Order Cards */
+        .order-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 14px;
+        }
+
+        .order-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .order-id { font-family: monospace; font-weight: 800; font-size: 0.9rem; color: var(--primary-dark); }
+        .order-date { font-size: 0.75rem; color: var(--text-muted); }
+
+        .profit-badge {
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 4px 8px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .profit-pos { background: #dcfce7; color: #15803d; }
+        .profit-neg { background: #fee2e2; color: #b91c1c; }
+
+        .order-items-list {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px dashed var(--border);
+            display: none;
+        }
+        .order-items-list.open { display: block; }
+
+        .item-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 0.85rem;
+        }
+
+        .item-name { font-weight: 700; color: var(--text-main); }
+        .item-meta { font-size: 0.75rem; color: var(--text-muted); }
+
+        .search-box { position: relative; margin-bottom: 20px; }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 16px 12px 42px;
+            border-radius: 30px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            font-size: 0.9rem;
+            font-family: inherit;
+            outline: none;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .search-box::before {
+            content: '🔍';
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.9rem;
+            opacity: 0.5;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 800;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Form Elements */
+        .form-group { margin-bottom: 18px; }
+
+        .form-group label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text-main);
+        }
+
+        .input-text-standard {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            font-size: 0.9rem;
+            font-family: inherit;
+            outline: none;
+            background: white;
+            transition: border-color 0.2s ease;
+        }
+
+        .input-text-standard:focus { border-color: var(--primary); }
+
+        .item-input-builder {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: var(--bg);
+            padding: 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+
+        .input-row-inputs { display: flex; gap: 10px; width: 100%; }
+
+        .item-input-builder input {
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            font-size: 0.9rem;
+            font-family: inherit;
+            outline: none;
+            background: white;
+        }
+
+        .add-item-btn {
+            background: var(--primary-dark);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            font-weight: 800;
+            font-size: 0.95rem;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.25);
+            transition: background 0.2s ease;
+        }
+
+        .add-item-btn:hover { background: #047857; }
+
+        .whatsapp-send-btn {
+            background: #25d366;
+            color: white;
+            border: none;
+            width: 100%;
+            padding: 14px;
+            border-radius: 30px;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
+            margin-top: 20px;
+        }
+
+        .whatsapp-send-btn:hover { background: #128c7e; }
+
+        /* Price List Layout */
+        .price-cards-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 70vh;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .price-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.15s ease, border-color 0.15s ease;
+        }
+
+        .price-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+
+        .price-card-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); padding-right: 12px; line-height: 1.3; }
+
+        .price-card-val {
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: var(--primary-dark);
+            background: var(--primary-light);
+            padding: 6px 12px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+
+        .kw-badge {
+            font-size: 0.72rem;
+            background: #f1f5f9;
+            color: var(--text-muted);
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-top: 4px;
+            display: inline-block;
+            font-weight: 600;
+        }
+
+        .analytics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+
+        .analytics-card { background: var(--bg); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius-md); }
+        .analytics-card span { font-size: 0.75rem; color: var(--text-muted); font-weight: 700; display: block; }
+        .analytics-card strong { font-size: 1.1rem; font-weight: 800; color: var(--text-main); }
+    </style>
+</head>
+<body>
+
+    <!-- USERNAME & PASSWORD AUTHENTICATION OVERLAY -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <div style="font-size:2.5rem; margin-bottom:12px;">🏪</div>
+            <h2>Go-Kirana Portal</h2>
+            <p>Please enter your credentials to access</p>
+
+            <div class="login-field">
+                <label>Username</label>
+                <input type="text" id="loginUsername" placeholder="Enter username">
+            </div>
+
+            <div class="login-field">
+                <label>Password</label>
+                <input type="password" id="loginPassword" placeholder="Enter password" onkeypress="if(event.key==='Enter') executeLogin()">
+            </div>
+
+            <button class="login-btn" id="loginSubmitBtn" onclick="executeLogin()">🔓 Sign In</button>
+            <div id="login-error-msg">Invalid username or password.</div>
+        </div>
+    </div>
+
+    <!-- APP HEADER -->
+    <header>
+        <div class="header-container">
+            <div class="brand" onclick="switchTab('homeTab')">
+                <div class="brand-icon">🏪</div>
+                <div class="brand-text">
+                    <h1>Go-Kirana</h1>
+                    <p>Smart Operations Hub</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="sync-btn" onclick="switchTab('homeTab')">🏠 Home</button>
+                <button class="sync-btn" onclick="fetchLiveData(true)">🔄 Refresh</button>
+                <button class="logout-btn" onclick="logoutUser()">🚪 Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="status-banner" class="status-loading">📡 Connecting live to Google Sheet...</div>
+
+        <!-- Navigation Pills -->
+        <div class="nav-pills" id="mainNavPills">
+            <button class="pill-btn active" onclick="switchTab('homeTab')">🏠 Dashboard</button>
+            <button class="pill-btn" onclick="switchTab('customersTab')">🏆 Customers</button>
+            <button class="pill-btn" onclick="switchTab('followupTab')">🚨 Follow Up</button>
+            <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
+            <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
+            <button class="pill-btn" onclick="switchTab('ordersTab')">📦 Orders Stream</button>
+        </div>
+
+        <!-- TAB 0: HOME PAGE (4 PRIMARY CARDS) -->
+        <div id="homeTab" class="tab-content active">
+            <div style="text-align:center; margin-bottom:24px;">
+                <h2 style="font-size:1.5rem; font-weight:800;">Welcome to Go-Kirana</h2>
+                <p style="font-size:0.9rem; color:var(--text-muted);">Select an operational module below to get started</p>
+            </div>
+
+            <div class="home-grid">
+                <!-- Card 1: Customers -->
+                <div class="home-card" onclick="switchTab('customersTab')">
+                    <div class="home-card-icon">🏆</div>
+                    <h3>1. Customers</h3>
+                    <p>Rankings, engagement scores & individual store history</p>
+                </div>
+
+                <!-- Card 2: Follow Up -->
+                <div class="home-card" onclick="switchTab('followupTab')">
+                    <div class="home-card-icon" style="background:#fee2e2; color:#ef4444;">🚨</div>
+                    <h3>2. Follow Up</h3>
+                    <p>Intelligent alerts for overdue shopkeeper re-orders</p>
+                </div>
+
+                <!-- Card 3: New Order -->
+                <div class="home-card" onclick="switchTab('newOrderTab')">
+                    <div class="home-card-icon" style="background:#e0e7ff; color:#3730a3;">✨</div>
+                    <h3>3. New Order</h3>
+                    <p>Quick order builder for new or unregistered customers</p>
+                </div>
+
+                <!-- Card 4: Price List -->
+                <div class="home-card" onclick="switchTab('priceTab')">
+                    <div class="home-card-icon" style="background:#fef3c7; color:#d97706;">🏷️</div>
+                    <h3>4. Price List</h3>
+                    <p>Fuzzy-search enabled product catalog & search keywords</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: CUSTOMERS RANKED -->
+        <div id="customersTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="custSearch" placeholder="Search customer by name or phone..." onkeyup="filterCustomers()">
+            </div>
+            
+            <div class="section-title">
+                <span>Ranked Shopkeepers</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="custCount">0 Customers</span>
+            </div>
+
+            <div class="cards-grid" id="customersGrid"></div>
+        </div>
+
+        <!-- TAB 2: FOLLOW UP ALERTS -->
+        <div id="followupTab" class="tab-content">
+            <div style="background: #fef2f2; border:1px solid #fecaca; padding:16px; border-radius:var(--radius-md); margin-bottom:20px;">
+                <h3 style="color:#991b1b; font-size:0.95rem; font-weight:800; margin-bottom:4px;">🚨 Intelligent Follow-up System</h3>
+                <p style="color:#7f1d1d; font-size:0.8rem; font-weight:500;">
+                    Shopkeepers overdue based on their personalized target frequency.
+                </p>
+            </div>
+
+            <div class="cards-grid" id="followupGrid"></div>
+        </div>
+
+        <!-- TAB 3: PRICE LIST (CARD VIEW WITH ENHANCED FUZZY MATCH) -->
+        <div id="priceTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="priceSearch" placeholder="Search by name, SKU, or keywords (fuzzy match supported)..." onkeyup="filterPriceList()">
+            </div>
+            
+            <div class="section-title">
+                <span>Product Catalog</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="priceItemCount">0 Items</span>
+            </div>
+
+            <div class="price-cards-list" id="priceListCardsContainer"></div>
+        </div>
+
+        <!-- TAB 4: NEW ORDER TAB (UNREGISTERED CUSTOMER) -->
+        <div id="newOrderTab" class="tab-content">
+            <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto;">
+                <div class="section-title" style="margin-bottom:6px;">
+                    <span>✨ Order for New Shopkeeper</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
+                    Create an order for a new customer not yet registered in our database.
+                </p>
+
+                <div class="form-group">
+                    <label>Shopkeeper Name *</label>
+                    <input type="text" id="newCustName" class="input-text-standard" placeholder="e.g. Rahul Sharma">
+                </div>
+
+                <div class="form-group">
+                    <label>Mobile Number *</label>
+                    <input type="tel" id="newCustMobile" class="input-text-standard" placeholder="e.g. 9876543210">
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border); margin: 20px 0;">
+
+                <div class="form-group">
+                    <label>Add Order Items:</label>
+                    <div class="item-input-builder">
+                        <div class="input-row-inputs">
+                            <input type="text" id="newOrderBuilderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;">
+                            <input type="number" id="newOrderBuilderQty" placeholder="Qty" value="1" style="width:80px; text-align:center;">
+                        </div>
+                        <button class="add-item-btn" onclick="addNewOrderItem()">➕ Add Item to Cart</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Cart Summary:</label>
+                    <div id="newOrderCartItemsList" style="background:var(--bg); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); min-height:80px; max-height:200px; overflow-y:auto;">
+                        <p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                    <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
+                    <strong style="font-size:1.2rem; color:var(--primary-dark);" id="newOrderCartEstimatedTotal">₹0</strong>
+                </div>
+
+                <button class="whatsapp-send-btn" onclick="sendNewCustomerOrderToWhatsApp()">
+                    💬 Send New Customer Order to WhatsApp (7678153075)
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB 5: ALL ORDERS STREAM -->
+        <div id="ordersTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="orderSearch" placeholder="Search order ID or customer name..." onkeyup="filterOrders()">
+            </div>
+            <div id="ordersListStream"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 1: CUSTOMER ORDERS & SMART RECOMMENDATIONS -->
+    <div class="modal-overlay" id="detailsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="modalCustName">Customer Profile</h2>
+                    <p id="modalCustMeta">Customer details & order breakdown</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('detailsModal')">✕</button>
+            </div>
+
+            <div class="recommendation-box">
+                <div class="rec-title">
+                    <span>🧠 Smart Predicted Next Items</span>
+                    <span style="font-size:0.75rem; color:var(--primary-dark); font-weight:600;">Probabilistic AI Score</span>
+                </div>
+                <div class="rec-chips" id="modalRecChips"></div>
+            </div>
+
+            <div class="section-title" style="font-size:0.95rem; margin-bottom:12px;">Order History</div>
+            <div id="modalOrdersBody"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: DEEP ANALYTICS DRAWER -->
+    <div class="modal-overlay" id="analyticsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="analyticsCustName">Deep Analytics</h2>
+                    <p>Profitability & Performance breakdown</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('analyticsModal')">✕</button>
+            </div>
+
+            <div class="analytics-grid">
+                <div class="analytics-card">
+                    <span>Total Revenue</span>
+                    <strong id="anTotalRev">₹0</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Net Profit</span>
+                    <strong id="anNetProfit" style="color:#10b981;">₹0</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Profit Margin (%)</span>
+                    <strong id="anProfitMargin">0%</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Avg Profit / Order</span>
+                    <strong id="anAvgProfit">₹0</strong>
+                </div>
+            </div>
+
+            <div style="background:var(--card-bg); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border);">
+                <div class="section-title" style="font-size:0.9rem;">Order Profitability Breakdown</div>
+                <div id="analyticsOrdersList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: ORDER FORM TO WHATSAPP -->
+    <div class="modal-overlay" id="orderFormModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2>Take New Order</h2>
+                    <p id="orderFormCustMeta">Shopkeeper Order Entry</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('orderFormModal')">✕</button>
+            </div>
+
+            <datalist id="productListDatalist"></datalist>
+
+            <div class="form-group">
+                <label>Add Order Items:</label>
+                <div class="item-input-builder">
+                    <div class="input-row-inputs">
+                        <input type="text" id="builderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;">
+                        <input type="number" id="builderQty" placeholder="Qty" value="1" style="width:80px; text-align:center;">
+                    </div>
+                    <button class="add-item-btn" onclick="addOrderItem()">➕ Add Item to Cart</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Cart Summary:</label>
+                <div id="cartItemsList" style="background:var(--bg); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); min-height:80px; max-height:200px; overflow-y:auto;">
+                    <p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
+                <strong style="font-size:1.2rem; color:var(--primary-dark);" id="cartEstimatedTotal">₹0</strong>
+            </div>
+
+            <button class="whatsapp-send-btn" onclick="sendOrderToWhatsApp()">
+                💬 Send Order to WhatsApp (7678153075)
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const SHEET_ID = '1WNX0PqbLSDJ11ps2cuZaeYQC-w87KM5uUt5acPjJahI';
+        const WHATSAPP_NUM = '917678153075';
+        
+        // STANDALONE LOGIN SCRIPT ENDPOINT URL
+        const LOGIN_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwqEUkHvjCkqYyS9y4so04ijmtw00HXthS7_4Rf39m_qbqUNYLE2yxHwAAdlR8BdM7K8A/exec';
+        
+        let rawCustomers = [];
+        let rawOrders = [];
+        let rawOrderItems = [];
+        let rawProducts = [];
+        
+        let productMapBySKU = {};
+        let productMapByNameAndPrice = {};
+        
+        let processedCustomers = [];
+        let activeOrderCustomer = null;
+        let cartItems = [];
+        let newOrderCartItems = [];
+
+        // --- AUTHENTICATION MODULE ---
+        function checkAuthStatus() {
+            const authSaved = localStorage.getItem('gokirana_auth_success');
+            if (authSaved === 'true') {
+                document.getElementById('login-overlay').style.display = 'none';
+                return true;
+            } else {
+                document.getElementById('login-overlay').style.display = 'flex';
+                return false;
+            }
+        }
+
+        async function executeLogin() {
+            const u = document.getElementById('loginUsername').value.trim();
+            const p = document.getElementById('loginPassword').value.trim();
+            const btn = document.getElementById('loginSubmitBtn');
+            const err = document.getElementById('login-error-msg');
+
+            if (!u || !p) {
+                err.innerText = 'Please enter both username and password.';
+                err.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = '⏳ Verifying...';
+            err.style.display = 'none';
+
+            try {
+                const isValid = await validateUserCredentials(u, p);
+                if (isValid) {
+                    localStorage.setItem('gokirana_auth_success', 'true');
+                    localStorage.setItem('gokirana_user', u);
+                    document.getElementById('login-overlay').style.display = 'none';
+                    fetchLiveData(true);
+                } else {
+                    err.innerText = 'Invalid username or password.';
+                    err.style.display = 'block';
+                }
+            } catch (e) {
+                console.error(e);
+                err.innerText = 'Authentication error. Please check connection.';
+                err.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '🔓 Sign In';
+            }
+        }
+
+        async function validateUserCredentials(username, password) {
+            // Validate via Dedicated Standalone Login Web App
+            if (LOGIN_WEB_APP_URL && !LOGIN_WEB_APP_URL.includes('YOUR_LOGIN_WEB_APP_URL')) {
+                try {
+                    const res = await fetch(LOGIN_WEB_APP_URL, {
+                        method: 'POST',
+                        mode: 'cors',
+                        headers: { 'Content-Type': 'text/plain' },
+                        body: JSON.stringify({
+                            username: username,
+                            password: password
+                        })
+                    });
+                    const data = await res.json();
+                    return data.status === 'success';
+                } catch (err) {
+                    console.warn('Dedicated login endpoint error, falling back to sheet fetch:', err);
+                }
+            }
+
+            // Fallback direct JSONP lookup from "Users" sheet tab
+            try {
+                const usersData = await fetchSheetDataJSONP('Users', true);
+                if (usersData && usersData.length) {
+                    const match = usersData.find(row => {
+                        const uVal = String(row['Username'] || row['username'] || row['User'] || '').trim();
+                        const pVal = String(row['Password'] || row['password'] || '').trim();
+                        return uVal.toLowerCase() === username.toLowerCase() && pVal === password;
+                    });
+                    return !!match;
+                }
+            } catch (e) {
+                console.error('Sheet authentication error:', e);
+            }
+
+            return false;
+        }
+
+        function logoutUser() {
+            localStorage.removeItem('gokirana_auth_success');
+            localStorage.removeItem('gokirana_user');
+            location.reload();
+        }
+
+        // --- DATA FETCHING (JSONP) ---
+        function fetchSheetDataJSONP(tabName, forceBustCache = false) {
+            return new Promise((resolve, reject) => {
+                const callbackName = 'gviz_cb_' + Math.random().toString(36).substring(2, 9);
+                window[callbackName] = function(response) {
+                    delete window[callbackName];
+                    document.body.removeChild(script);
+                    if (response && response.table) {
+                        resolve(parseGvizTable(response.table));
+                    } else {
+                        reject('Invalid format');
+                    }
+                };
+
+                const script = document.createElement('script');
+                const cacheBuster = forceBustCache ? `&_t=${Date.now()}` : '';
+                script.src = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(tabName)}&tqx=responseHandler:${callbackName}${cacheBuster}`;
+                script.onerror = () => { delete window[callbackName]; document.body.removeChild(script); reject(); };
+                document.body.appendChild(script);
+            });
+        }
+
+        function parseGvizTable(table) {
+            const cols = table.cols.map(c => (c.label || c.id || '').trim());
+            return table.rows.map(r => {
+                const rowObj = {};
+                r.c.forEach((cell, idx) => {
+                    const colName = cols[idx];
+                    if (colName) rowObj[colName] = cell ? (cell.f !== undefined ? cell.f : cell.v) : '';
+                });
+                return rowObj;
+            });
+        }
+
+        async function fetchLiveData(forceBust = false) {
+            if (!checkAuthStatus()) return;
+
+            const status = document.getElementById('status-banner');
+            status.className = 'status-loading';
+            status.innerHTML = '📡 Syncing real-time store data...';
+
+            try {
+                const [cust, ord, items, prods] = await Promise.all([
+                    fetchSheetDataJSONP('Customers', forceBust),
+                    fetchSheetDataJSONP('Orders', forceBust),
+                    fetchSheetDataJSONP('Order Details', forceBust),
+                    fetchSheetDataJSONP('Products', forceBust)
+                ]);
+
+                rawCustomers = cust;
+                rawOrders = ord;
+                rawOrderItems = items;
+                rawProducts = prods;
+
+                // Build catalog mappings
+                const datalist = document.getElementById('productListDatalist');
+                datalist.innerHTML = '';
+                productMapBySKU = {};
+                productMapByNameAndPrice = {};
+
+                prods.forEach(p => {
+                    const sku = (p['SKU'] || '').trim();
+                    const name = p['Item Name'] || p['Standard Name'] || sku;
+                    const price = parseFloat(p['Price per Unit'] || 0);
+                    const costPrice = parseFloat(p['Cost Price'] || p['Cost'] || p['Purchase Price'] || 0);
+
+                    if (sku) {
+                        productMapBySKU[sku] = { sku, name, price, costPrice };
+                        
+                        const suggestionLabel = `${name} - ₹${price}`;
+                        productMapByNameAndPrice[suggestionLabel.toLowerCase()] = { sku, name, price, costPrice };
+                        
+                        datalist.innerHTML += `<option value="${suggestionLabel}"></option>`;
+                    }
+                });
+
+                processCustomerScoresAndRanks();
+                renderCustomersGrid(processedCustomers);
+                renderFollowupGrid();
+                renderPriceList(rawProducts);
+                renderOrdersStream(rawOrders);
+
+                status.className = 'status-success';
+                status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
+            } catch (err) {
+                console.error(err);
+                status.className = 'status-error';
+                status.innerHTML = '⚠️ Connectivity issue fetching Google Sheet.';
+            }
+        }
+
+        function processCustomerScoresAndRanks() {
+            let maxRevenue = 1;
+            rawCustomers.forEach(c => {
+                const amt = parseFloat(String(c['Total Amount']||0).replace(/[^0-9.-]+/g,"")) || 0;
+                if (amt > maxRevenue) maxRevenue = amt;
+            });
+
+            processedCustomers = rawCustomers.map(c => {
+                const totalAmt = parseFloat(String(c['Total Amount']||0).replace(/[^0-9.-]+/g,"")) || 0;
+                const totalOrds = parseFloat(c['Total Orders']||0) || 0;
+                const aov = parseFloat(String(c['AOV(Average Order Value)']||0).replace(/[^0-9.-]+/g,"")) || 0;
+                const weeklyFreq = parseFloat(c['Order Frequency (Per Week)']||0) || 0;
+                const daysSince = parseFloat(c['Days Since Last Order']||0) || 0;
+
+                const revenueScore = (totalAmt / maxRevenue) * 40;
+                const freqScore = Math.min((weeklyFreq / 2.0) * 30, 30);
+                const targetIntervalDays = weeklyFreq > 1.0 ? (7 / weeklyFreq) : 7;
+                let recencyScore = 30 - Math.max(0, (daysSince - targetIntervalDays) * 3);
+                recencyScore = Math.max(0, recencyScore);
+
+                const finalScore = Math.round(revenueScore + freqScore + recencyScore);
+                const isFollowupDue = daysSince >= targetIntervalDays;
+
+                return {
+                    ...c,
+                    score: finalScore,
+                    totalAmt,
+                    totalOrds,
+                    aov,
+                    weeklyFreq,
+                    daysSince,
+                    targetIntervalDays: Math.round(targetIntervalDays),
+                    isFollowupDue
+                };
+            });
+
+            processedCustomers.sort((a, b) => b.score - a.score);
+            processedCustomers.forEach((c, index) => c.rank = index + 1);
+        }
+
+        function renderCustomersGrid(data) {
+            const grid = document.getElementById('customersGrid');
+            document.getElementById('custCount').innerText = `${data.length} Customers`;
+
+            grid.innerHTML = data.map(c => {
+                const initials = (c['Owner Name'] || 'C').split(' ').map(n=>n[0]).join('').substring(0,2);
+                const custId = c['Id'] || c['ID'];
+
+                return `
+                <div class="customer-card">
+                    <div class="rank-badge">Rank #${c.rank}</div>
+                    <div onclick="openCustomerDetails('${custId}', '${c['Owner Name']}')">
+                        <div class="card-header-user">
+                            <div class="avatar">${initials}</div>
+                            <div class="user-info">
+                                <h3>${c['Owner Name']}</h3>
+                                <p>📱 +${c['Country Code']||'91'} ${c['Mobile Number']||''}</p>
+                            </div>
+                        </div>
+
+                        <div class="score-pill-row">
+                            <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Customer Score</span>
+                            <span class="score-val">⭐ ${c.score} / 100</span>
+                        </div>
+
+                        <div class="stats-badge-row">
+                            <span class="badge green">📦 ${c.totalOrds} Orders</span>
+                            <span class="badge">⚡ ${c.weeklyFreq}/wk</span>
+                            <span class="badge ${c.isFollowupDue ? 'red' : 'orange'}">⌛ ${c.daysSince} days ago</span>
+                        </div>
+
+                        <div class="card-metrics">
+                            <div class="metric-item">
+                                <span>Total Spent</span>
+                                <strong>₹${c.totalAmt.toLocaleString('en-IN')}</strong>
+                            </div>
+                            <div class="metric-item">
+                                <span>Avg Order (AOV)</span>
+                                <strong>₹${c.aov.toLocaleString('en-IN')}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-footer-action">
+                        <button class="btn-analytics" onclick="openDeepAnalytics('${custId}', '${c['Owner Name']}')">📊 Analytics</button>
+                        <button class="btn-order" onclick="openOrderForm('${custId}', '${c['Owner Name']}', '${c['Mobile Number']}')">📝 Take Order</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function renderFollowupGrid() {
+            const grid = document.getElementById('followupGrid');
+            const dueList = processedCustomers.filter(c => c.isFollowupDue);
+
+            if (!dueList.length) {
+                grid.innerHTML = '<p style="padding:20px; color:var(--text-muted);">🎉 All shopkeepers up-to-date!</p>';
+                return;
+            }
+
+            grid.innerHTML = dueList.map(c => {
+                const initials = (c['Owner Name'] || 'C').split(' ').map(n=>n[0]).join('').substring(0,2);
+                const custId = c['Id'] || c['ID'];
+
+                return `
+                <div class="customer-card" style="border-left:4px solid var(--accent-red);">
+                    <div class="rank-badge" style="background:#ef4444;">Rank #${c.rank}</div>
+                    <div onclick="openCustomerDetails('${custId}', '${c['Owner Name']}')">
+                        <div class="card-header-user">
+                            <div class="avatar" style="background:#fee2e2; color:#b91c1c;">${initials}</div>
+                            <div class="user-info">
+                                <h3>${c['Owner Name']}</h3>
+                                <p>📱 +${c['Country Code']||'91'} ${c['Mobile Number']||''}</p>
+                            </div>
+                        </div>
+
+                        <div class="stats-badge-row">
+                            <span class="badge red">⚠️ Overdue by ${c.daysSince - c.targetIntervalDays} days</span>
+                            <span class="badge">Target: Every ${c.targetIntervalDays} days</span>
+                        </div>
+                    </div>
+
+                    <div class="card-footer-action">
+                        <button class="btn-order" style="background:#ef4444; width:100%;" onclick="openOrderForm('${custId}', '${c['Owner Name']}', '${c['Mobile Number']}')">📝 Take Order & Send WhatsApp</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        // --- FUZZY SEARCH & KEYWORD MATCHING ---
+        function levenshteinDistance(a, b) {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
+            const matrix = [];
+            for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+            for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                        matrix[i][j] = matrix[i - 1][j - 1];
+                    } else {
+                        matrix[i][j] = Math.min(
+                            matrix[i - 1][j - 1] + 1,
+                            matrix[i][j - 1] + 1,
+                            matrix[i - 1][j] + 1
+                        );
+                    }
+                }
+            }
+            return matrix[b.length][a.length];
+        }
+
+        function fuzzyMatch(text, query) {
+            if (!text || !query) return false;
+            text = text.toLowerCase();
+            query = query.toLowerCase();
+
+            if (text.includes(query)) return true;
+
+            const words = text.split(/[\s,]+/);
+            for (let word of words) {
+                if (Math.abs(word.length - query.length) <= 2) {
+                    const dist = levenshteinDistance(word, query);
+                    if (dist <= 2) return true;
+                }
+            }
+            return false;
+        }
+
+        function filterPriceList() {
+            const q = document.getElementById('priceSearch').value.trim();
+            if (!q) {
+                renderPriceList(rawProducts);
+                return;
+            }
+
+            const filtered = rawProducts.filter(p => {
+                const sku = (p['SKU'] || '').toLowerCase();
+                const name = (p['Item Name'] || p['Standard Name'] || '').toLowerCase();
+                const rawKeywords = (p['Search Keywords'] || p['Keywords'] || '').toLowerCase();
+                const keywords = rawKeywords.split(',').map(k => k.trim());
+
+                if (fuzzyMatch(name, q) || fuzzyMatch(sku, q)) return true;
+
+                for (let kw of keywords) {
+                    if (kw && fuzzyMatch(kw, q)) return true;
+                }
+
+                return false;
+            });
+
+            renderPriceList(filtered);
+        }
+
+        function renderPriceList(prods) {
+            const container = document.getElementById('priceListCardsContainer');
+            document.getElementById('priceItemCount').innerText = `${prods.length} Items`;
+
+            if (!prods.length) {
+                container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No products found matching search.</p>';
+                return;
+            }
+
+            container.innerHTML = prods.map(p => {
+                const sku = p['SKU'] || '';
+                const name = p['Item Name'] || p['Standard Name'] || sku;
+                const price = p['Price per Unit'] || '0';
+                const keywords = (p['Search Keywords'] || p['Keywords'] || '').trim();
+
+                return `
+                <div class="price-card">
+                    <div>
+                        <div class="price-card-name">${name}</div>
+                        ${keywords ? `<div class="kw-badge">🏷️ ${keywords}</div>` : ''}
+                    </div>
+                    <div class="price-card-val">₹${price}</div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        // Probabilistic Recommendation Engine
+        function openCustomerDetails(custId, custName) {
+            document.getElementById('modalCustName').innerText = custName;
+            document.getElementById('modalCustMeta').innerText = `Customer ID: ${custId}`;
+
+            const custOrders = rawOrders.filter(o => (o['CustomerId'] || '').trim() === custId.trim() || (o['CustomerName']||'').toLowerCase() === custName.toLowerCase());
+            const totalCustOrders = custOrders.length;
+
+            const itemStats = {};
+
+            custOrders.forEach((o, orderIndex) => {
+                const orderId = o['Id'] || o['Order ID'];
+                const items = rawOrderItems.filter(i => (i['Order ID'] || i['Id'] || '').trim() === orderId.trim());
+
+                items.forEach(i => {
+                    const sku = (i['SKU'] || '').trim();
+                    const prod = productMapBySKU[sku];
+                    const itemName = prod ? prod.name : sku;
+
+                    if (!itemStats[itemName]) {
+                        itemStats[itemName] = { totalQty: 0, orderAppearances: 0, lastOrderIndex: orderIndex };
+                    }
+
+                    itemStats[itemName].totalQty += (parseInt(i['Quantity']) || 1);
+                    itemStats[itemName].orderAppearances += 1;
+                    itemStats[itemName].lastOrderIndex = orderIndex;
+                });
+            });
+
+            const rankedRecommendations = Object.keys(itemStats).map(name => {
+                const stat = itemStats[name];
+                const orderRatio = totalCustOrders > 0 ? (stat.orderAppearances / totalCustOrders) : 0;
+                
+                let probability = Math.round(orderRatio * 100);
+                if (probability > 95) probability = 95;
+                if (probability < 15) probability = 15;
+
+                return { name, totalQty: stat.totalQty, probability, score: probability * stat.totalQty };
+            }).sort((a, b) => b.score - a.score).slice(0, 6);
+
+            const recChipsContainer = document.getElementById('modalRecChips');
+            recChipsContainer.innerHTML = rankedRecommendations.length ? 
+                rankedRecommendations.map(item => `
+                    <div class="rec-chip">
+                        <span>📦 ${item.name} (${item.totalQty}x)</span>
+                        <span class="prob-badge">${item.probability}% Need</span>
+                    </div>
+                `).join('') :
+                '<span style="font-size:0.8rem; color:var(--text-muted);">No order history available.</span>';
+
+            const body = document.getElementById('modalOrdersBody');
+            body.innerHTML = custOrders.map(o => {
+                const orderId = o['Id'] || o['Order ID'];
+                const billAmt = parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+                const profitAmt = parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+                const profitPct = billAmt ? ((profitAmt / billAmt) * 100).toFixed(2) : '0.00';
+
+                const items = rawOrderItems.filter(i => (i['Order ID'] || i['Id'] || '').trim() === orderId.trim());
+
+                return `
+                <div class="order-card">
+                    <div class="order-card-header" onclick="toggleOrderItems('${orderId}')">
+                        <div>
+                            <div class="order-id">${orderId}</div>
+                            <div class="order-date">📅 ${o['Order Date']} • ${items.length} items</div>
+                            <div class="profit-badge ${profitAmt >= 0 ? 'profit-pos' : 'profit-neg'}">
+                                Profit: ₹${profitAmt} (${profitPct}%)
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-weight:800; font-size:1rem;">₹${billAmt.toLocaleString('en-IN')}</div>
+                            <div style="font-size:0.75rem; color:var(--primary-dark); font-weight:700;">Items ▼</div>
+                        </div>
+                    </div>
+
+                    <div class="order-items-list" id="items-${orderId}">
+                        ${items.map(i => {
+                            const sku = (i['SKU'] || '').trim();
+                            const prod = productMapBySKU[sku];
+                            const descriptiveName = prod ? prod.name : sku;
+                            return `
+                            <div class="item-row">
+                                <div>
+                                    <div class="item-name">${descriptiveName}</div>
+                                    <div class="item-meta">Qty: ${i['Quantity']} • Unit Price: ₹${i['Unit Price']}</div>
+                                </div>
+                                <strong>₹${parseFloat(String(i['Calculated Total']||0).replace(/[^0-9.-]+/g,"")).toLocaleString('en-IN')}</strong>
+                            </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            document.getElementById('detailsModal').classList.add('active');
+        }
+
+        function openDeepAnalytics(custId, custName) {
+            document.getElementById('analyticsCustName').innerText = custName;
+
+            const custOrders = rawOrders.filter(o => (o['CustomerId'] || '').trim() === custId.trim() || (o['CustomerName']||'').toLowerCase() === custName.toLowerCase());
+
+            let totalRev = 0, totalProfit = 0;
+            custOrders.forEach(o => {
+                totalRev += parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+                totalProfit += parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+            });
+
+            const marginPct = totalRev ? ((totalProfit / totalRev) * 100).toFixed(2) : '0.00';
+            const avgProfit = custOrders.length ? (totalProfit / custOrders.length).toFixed(2) : '0';
+
+            document.getElementById('anTotalRev').innerText = `₹${totalRev.toLocaleString('en-IN')}`;
+            document.getElementById('anNetProfit').innerText = `₹${totalProfit.toLocaleString('en-IN')}`;
+            document.getElementById('anProfitMargin').innerText = `${marginPct}%`;
+            document.getElementById('anAvgProfit').innerText = `₹${avgProfit}`;
+
+            document.getElementById('analyticsOrdersList').innerHTML = custOrders.map(o => {
+                const bill = parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+                const profit = parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+                const pct = bill ? ((profit / bill) * 100).toFixed(2) : '0.00';
+
+                return `
+                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                    <span>📅 ${o['Order Date']} (${o['Id'] || o['Order ID']})</span>
+                    <strong>₹${bill} | Profit: <span style="color:#10b981;">₹${profit} (${pct}%)</span></strong>
+                </div>
+                `;
+            }).join('');
+
+            document.getElementById('analyticsModal').classList.add('active');
+        }
+
+        function openOrderForm(custId, custName, mobile) {
+            activeOrderCustomer = { custId, custName, mobile };
+            cartItems = [];
+            document.getElementById('orderFormCustMeta').innerText = `${custName} (📱 +91 ${mobile})`;
+            renderCart();
+            document.getElementById('orderFormModal').classList.add('active');
+        }
+
+        function addOrderItem() {
+            const inputVal = document.getElementById('builderItemName').value.trim();
+            const qty = parseInt(document.getElementById('builderQty').value) || 1;
+
+            if (!inputVal) return;
+
+            let matched = null;
+
+            if (productMapByNameAndPrice[inputVal.toLowerCase()]) {
+                matched = productMapByNameAndPrice[inputVal.toLowerCase()];
+            } else {
+                const found = Object.values(productMapBySKU).find(p => 
+                    p.name.toLowerCase() === inputVal.toLowerCase() ||
+                    `${p.name} - ₹${p.price}`.toLowerCase() === inputVal.toLowerCase() ||
+                    p.sku.toLowerCase() === inputVal.toLowerCase()
+                );
+                if (found) matched = found;
+            }
+
+            if (matched) {
+                cartItems.push({
+                    sku: matched.sku,
+                    name: matched.name,
+                    qty: qty,
+                    unitPrice: matched.price,
+                    costPrice: matched.costPrice || 0
+                });
+            } else {
+                cartItems.push({
+                    sku: null,
+                    name: inputVal,
+                    qty: qty,
+                    unitPrice: null,
+                    costPrice: 0
+                });
+            }
+
+            document.getElementById('builderItemName').value = '';
+            document.getElementById('builderQty').value = '1';
+            renderCart();
+        }
+
+        function renderCart() {
+            const container = document.getElementById('cartItemsList');
+            let estTotal = 0;
+
+            if (!cartItems.length) {
+                container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>';
+                document.getElementById('cartEstimatedTotal').innerText = '₹0';
+                return;
+            }
+
+            container.innerHTML = cartItems.map((item, idx) => {
+                const itemTotal = item.unitPrice ? (item.unitPrice * item.qty) : 0;
+                estTotal += itemTotal;
+
+                return `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                    <div>
+                        <strong>${item.name}</strong> × ${item.qty}
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${item.unitPrice ? `₹${item.unitPrice}/unit` : 'Price on request'}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <strong>${item.unitPrice ? `₹${itemTotal}` : 'N/A'}</strong>
+                        <button onclick="removeCartItem(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            document.getElementById('cartEstimatedTotal').innerText = `₹${estTotal.toLocaleString('en-IN')}`;
+        }
+
+        function removeCartItem(idx) {
+            cartItems.splice(idx, 1);
+            renderCart();
+        }
+
+        function sendOrderToWhatsApp() {
+            if (!activeOrderCustomer || !cartItems.length) {
+                alert('Please add at least one item to the order.');
+                return;
+            }
+
+            let message = `🛒 *NEW ORDER - GO-KIRANA*\n\n`;
+            message += `👤 *Shopkeeper:* ${activeOrderCustomer.custName}\n`;
+            message += `📱 *Mobile:* +91 ${activeOrderCustomer.mobile}\n\n`;
+            message += `📦 *Order Items:*\n`;
+
+            let approxTotal = 0;
+            let approxCostTotal = 0;
+
+            cartItems.forEach((item, index) => {
+                if (item.unitPrice) {
+                    const itemTotal = item.unitPrice * item.qty;
+                    approxTotal += itemTotal;
+                    if (item.costPrice) {
+                        approxCostTotal += item.costPrice * item.qty;
+                    }
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - ₹${item.unitPrice} = ₹${itemTotal}\n`;
+                } else {
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - Price N/A\n`;
+                }
+            });
+
+            message += `\n💰 *Approx Total Amount:* ₹${approxTotal.toLocaleString('en-IN')}`;
+
+            const approxProfit = approxTotal - approxCostTotal;
+            if (approxTotal > 0 && approxCostTotal > 0) {
+                const marginPct = ((approxProfit / approxTotal) * 100).toFixed(2);
+                message += `\n📈 *Est. Profit:* ₹${approxProfit.toLocaleString('en-IN')} (${marginPct}%)`;
+            }
+
+            const encodedMsg = encodeURIComponent(message);
+            const waUrl = `https://wa.me/${WHATSAPP_NUM}?text=${encodedMsg}`;
+            window.open(waUrl, '_blank');
+        }
+
+        // --- NEW ORDER TAB LOGIC (UNREGISTERED CUSTOMER) ---
+        function addNewOrderItem() {
+            const inputVal = document.getElementById('newOrderBuilderItemName').value.trim();
+            const qty = parseInt(document.getElementById('newOrderBuilderQty').value) || 1;
+
+            if (!inputVal) return;
+
+            let matched = null;
+
+            if (productMapByNameAndPrice[inputVal.toLowerCase()]) {
+                matched = productMapByNameAndPrice[inputVal.toLowerCase()];
+            } else {
+                const found = Object.values(productMapBySKU).find(p => 
+                    p.name.toLowerCase() === inputVal.toLowerCase() ||
+                    `${p.name} - ₹${p.price}`.toLowerCase() === inputVal.toLowerCase() ||
+                    p.sku.toLowerCase() === inputVal.toLowerCase()
+                );
+                if (found) matched = found;
+            }
+
+            if (matched) {
+                newOrderCartItems.push({
+                    sku: matched.sku,
+                    name: matched.name,
+                    qty: qty,
+                    unitPrice: matched.price,
+                    costPrice: matched.costPrice || 0
+                });
+            } else {
+                newOrderCartItems.push({
+                    sku: null,
+                    name: inputVal,
+                    qty: qty,
+                    unitPrice: null,
+                    costPrice: 0
+                });
+            }
+
+            document.getElementById('newOrderBuilderItemName').value = '';
+            document.getElementById('newOrderBuilderQty').value = '1';
+            renderNewOrderCart();
+        }
+
+        function renderNewOrderCart() {
+            const container = document.getElementById('newOrderCartItemsList');
+            let estTotal = 0;
+
+            if (!newOrderCartItems.length) {
+                container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>';
+                document.getElementById('newOrderCartEstimatedTotal').innerText = '₹0';
+                return;
+            }
+
+            container.innerHTML = newOrderCartItems.map((item, idx) => {
+                const itemTotal = item.unitPrice ? (item.unitPrice * item.qty) : 0;
+                estTotal += itemTotal;
+
+                return `
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                    <div>
+                        <strong>${item.name}</strong> × ${item.qty}
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${item.unitPrice ? `₹${item.unitPrice}/unit` : 'Price on request'}</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <strong>${item.unitPrice ? `₹${itemTotal}` : 'N/A'}</strong>
+                        <button onclick="removeNewOrderCartItem(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            document.getElementById('newOrderCartEstimatedTotal').innerText = `₹${estTotal.toLocaleString('en-IN')}`;
+        }
+
+        function removeNewOrderCartItem(idx) {
+            newOrderCartItems.splice(idx, 1);
+            renderNewOrderCart();
+        }
+
+        function sendNewCustomerOrderToWhatsApp() {
+            const name = document.getElementById('newCustName').value.trim();
+            const mobile = document.getElementById('newCustMobile').value.trim();
+
+            if (!name) {
+                alert('Please enter the Shopkeeper Name.');
+                document.getElementById('newCustName').focus();
+                return;
+            }
+
+            if (!mobile) {
+                alert('Please enter the Mobile Number.');
+                document.getElementById('newCustMobile').focus();
+                return;
+            }
+
+            if (!newOrderCartItems.length) {
+                alert('Please add at least one item to the cart.');
+                return;
+            }
+
+            let message = `✨ *NEW CUSTOMER ORDER - GO-KIRANA*\n\n`;
+            message += `👤 *Shopkeeper Name:* ${name}\n`;
+            message += `📱 *Mobile Number:* +91 ${mobile}\n\n`;
+            message += `📦 *Order Items:*\n`;
+
+            let approxTotal = 0;
+            let approxCostTotal = 0;
+
+            newOrderCartItems.forEach((item, index) => {
+                if (item.unitPrice) {
+                    const itemTotal = item.unitPrice * item.qty;
+                    approxTotal += itemTotal;
+                    if (item.costPrice) {
+                        approxCostTotal += item.costPrice * item.qty;
+                    }
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - ₹${item.unitPrice} = ₹${itemTotal}\n`;
+                } else {
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - Price N/A\n`;
+                }
+            });
+
+            message += `\n💰 *Approx Total Amount:* ₹${approxTotal.toLocaleString('en-IN')}`;
+
+            const approxProfit = approxTotal - approxCostTotal;
+            if (approxTotal > 0 && approxCostTotal > 0) {
+                const marginPct = ((approxProfit / approxTotal) * 100).toFixed(2);
+                message += `\n📈 *Est. Profit:* ₹${approxProfit.toLocaleString('en-IN')} (${marginPct}%)`;
+            }
+
+            const encodedMsg = encodeURIComponent(message);
+            const waUrl = `https://wa.me/${WHATSAPP_NUM}?text=${encodedMsg}`;
+            window.open(waUrl, '_blank');
+        }
+
+        function toggleOrderItems(orderId) {
+            const list = document.getElementById(`items-${orderId}`);
+            if (list) list.classList.toggle('open');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        function filterCustomers() {
+            const q = document.getElementById('custSearch').value.toLowerCase();
+            const filtered = processedCustomers.filter(c => (c['Owner Name']||'').toLowerCase().includes(q) || (c['Mobile Number']||'').includes(q));
+            renderCustomersGrid(filtered);
+        }
+
+        function filterOrders() {
+            const q = document.getElementById('orderSearch').value.toLowerCase();
+            const filtered = rawOrders.filter(o => (o['Id']||'').toLowerCase().includes(q) || (o['CustomerName']||'').toLowerCase().includes(q));
+            renderOrdersStream(filtered);
+        }
+
+        function renderOrdersStream(orders) {
+            const stream = document.getElementById('ordersListStream');
+            stream.innerHTML = orders.map(o => `
+                <div class="order-card">
+                    <div class="order-card-header">
+                        <div>
+                            <div class="order-id">${o['Id'] || o['Order ID']}</div>
+                            <div class="order-date">👤 <strong>${o['CustomerName']||'Customer'}</strong> • 📅 ${o['Order Date']}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-weight:800; font-size:1.05rem;">₹${parseFloat(String(o['Bill Amout']||o['Bill Amount']||0).replace(/[^0-9.-]+/g,"")).toLocaleString('en-IN')}</div>
+                            <span class="profit-badge profit-pos">Profit: ₹${o['Profit/Loss']||0}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.pill-btn').forEach(el => el.classList.remove('active'));
+            
+            const targetTab = document.getElementById(tabId);
+            if (targetTab) targetTab.classList.add('active');
+
+            // Sync navigation pills
+            const buttons = document.querySelectorAll('#mainNavPills .pill-btn');
+            buttons.forEach(btn => {
+                if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(tabId)) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        window.onload = function() {
+            if (checkAuthStatus()) {
+                fetchLiveData(true);
+            }
+        };
+    </script>
+</body>
+</html>
