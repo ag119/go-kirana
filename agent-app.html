@@ -944,7 +944,7 @@
                     <label>Add Order Items:</label>
                     <div class="item-input-builder">
                         <div class="input-row-inputs">
-                            <input type="text" id="newOrderBuilderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;">
+                            <input type="text" id="newOrderBuilderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;" oninput="updateDatalistSuggestions(this.value)">
                             <input type="number" id="newOrderBuilderQty" placeholder="Qty" value="1" style="width:80px; text-align:center;">
                         </div>
                         <button class="add-item-btn" onclick="addNewOrderItem()">➕ Add Item to Cart</button>
@@ -1056,7 +1056,7 @@
                 <label>Add Order Items:</label>
                 <div class="item-input-builder">
                     <div class="input-row-inputs">
-                        <input type="text" id="builderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;">
+                        <input type="text" id="builderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;" oninput="updateDatalistSuggestions(this.value)">
                         <input type="number" id="builderQty" placeholder="Qty" value="1" style="width:80px; text-align:center;">
                     </div>
                     <button class="add-item-btn" onclick="addOrderItem()">➕ Add Item to Cart</button>
@@ -1246,8 +1246,6 @@
                 rawOrderItems = items;
                 rawProducts = prods;
 
-                const datalist = document.getElementById('productListDatalist');
-                datalist.innerHTML = '';
                 productMapBySKU = {};
                 productMapByNameAndPrice = {};
 
@@ -1259,13 +1257,12 @@
 
                     if (sku) {
                         productMapBySKU[sku] = { sku, name, price, costPrice };
-                        
                         const suggestionLabel = `${name} - ₹${price}`;
                         productMapByNameAndPrice[suggestionLabel.toLowerCase()] = { sku, name, price, costPrice };
-                        
-                        datalist.innerHTML += `<option value="${suggestionLabel}"></option>`;
                     }
                 });
+
+                updateDatalistSuggestions('');
 
                 processCustomerScoresAndRanks();
                 renderCustomersGrid(processedCustomers);
@@ -1516,6 +1513,28 @@
             return null;
         }
 
+        // Dynamically rank the input datalist drop-down list as the user types
+        function updateDatalistSuggestions(query) {
+            const datalist = document.getElementById('productListDatalist');
+            if (!datalist) return;
+
+            let listToRender = rawProducts;
+            if (query && query.trim()) {
+                listToRender = rawProducts
+                    .map(p => ({ product: p, score: getMatchScore(p, query.trim()) }))
+                    .filter(item => item.score > 0)
+                    .sort((a, b) => b.score - a.score)
+                    .map(item => item.product);
+            }
+
+            datalist.innerHTML = listToRender.map(p => {
+                const sku = (p['SKU'] || '').trim();
+                const name = p['Item Name'] || p['Standard Name'] || sku;
+                const price = parseFloat(p['Price per Unit'] || 0);
+                return `<option value="${name} - ₹${price}"></option>`;
+            }).join('');
+        }
+
         function filterPriceList() {
             const q = document.getElementById('priceSearch').value.trim();
             
@@ -1729,6 +1748,7 @@
 
             document.getElementById('builderItemName').value = '';
             document.getElementById('builderQty').value = '1';
+            updateDatalistSuggestions('');
             renderCart();
         }
 
@@ -1837,6 +1857,7 @@
 
             document.getElementById('newOrderBuilderItemName').value = '';
             document.getElementById('newOrderBuilderQty').value = '1';
+            updateDatalistSuggestions('');
             renderNewOrderCart();
         }
 
