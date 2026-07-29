@@ -120,11 +120,11 @@
             display: none;
         }
 
-        /* Header */
+        /* Header Responsive Layout */
         header {
             background: linear-gradient(135deg, #064e3b 0%, #047857 100%);
             color: white;
-            padding: 18px 24px;
+            padding: 16px 20px;
             position: sticky;
             top: 0;
             z-index: 100;
@@ -137,6 +137,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
         }
 
         .brand {
@@ -161,16 +163,35 @@
         .brand-text h1 { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; }
         .brand-text p { font-size: 0.75rem; opacity: 0.8; font-weight: 500; }
 
-        .header-actions { display: flex; gap: 10px; align-items: center; }
+        .header-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 640px) {
+            .header-container {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .header-actions {
+                width: 100%;
+                justify-content: flex-start;
+                margin-top: 4px;
+                padding-top: 8px;
+                border-top: 1px solid rgba(255,255,255,0.15);
+            }
+        }
 
         .sync-btn {
             background: rgba(255,255,255,0.2);
             color: white;
             border: 1px solid rgba(255,255,255,0.3);
-            padding: 8px 16px;
+            padding: 8px 14px;
             border-radius: 20px;
             font-weight: 600;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             cursor: pointer;
             transition: all 0.2s ease;
         }
@@ -184,7 +205,7 @@
             padding: 8px 14px;
             border-radius: 20px;
             font-weight: 600;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             cursor: pointer;
         }
 
@@ -643,7 +664,7 @@
             justify-content: space-between;
         }
 
-        /* Form Elements */
+        /* Form Elements & Order Builder Mobile Responsive Adjustments */
         .form-group { margin-bottom: 18px; }
 
         .form-group label {
@@ -679,16 +700,62 @@
             margin-bottom: 16px;
         }
 
-        .input-row-inputs { display: flex; gap: 10px; width: 100%; }
+        .input-row-inputs { 
+            display: flex; 
+            gap: 10px; 
+            width: 100%; 
+            align-items: center;
+        }
 
-        .item-input-builder input {
-            padding: 12px;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            font-size: 0.9rem;
-            font-family: inherit;
-            outline: none;
+        /* Quantity controls in Order Builder */
+        .builder-qty-control {
+            display: flex;
+            align-items: center;
             background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 2px 4px;
+            min-width: 110px;
+            justify-content: space-between;
+        }
+
+        .builder-qty-btn {
+            border: none;
+            background: #e2e8f0;
+            color: var(--text-main);
+            width: 30px;
+            height: 32px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .builder-qty-input {
+            width: 36px;
+            text-align: center;
+            border: none;
+            background: transparent;
+            font-size: 0.95rem;
+            font-weight: 800;
+            outline: none;
+            color: var(--text-main);
+        }
+
+        @media (max-width: 480px) {
+            .input-row-inputs {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .builder-qty-control {
+                justify-content: center;
+                gap: 12px;
+                padding: 6px;
+            }
         }
 
         .add-item-btn {
@@ -731,7 +798,7 @@
 
         .whatsapp-send-btn:hover { background: #128c7e; }
 
-        /* Price List Layout */
+        /* Price List Layout & Cards */
         .price-cards-list {
             display: flex;
             flex-direction: column;
@@ -751,14 +818,21 @@
             align-items: center;
             box-shadow: var(--shadow-sm);
             transition: transform 0.15s ease, border-color 0.15s ease;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .price-card:hover { border-color: var(--primary); transform: translateY(-2px); }
 
-        .price-card-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); padding-right: 12px; line-height: 1.3; }
+        .price-card-info {
+            flex: 1;
+            min-width: 160px;
+        }
+
+        .price-card-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); line-height: 1.3; }
 
         .price-card-val {
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             font-weight: 800;
             color: var(--primary-dark);
             background: var(--primary-light);
@@ -767,41 +841,61 @@
             white-space: nowrap;
         }
 
+        .price-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 480px) {
+            .price-card {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .price-card-actions {
+                width: 100%;
+                justify-content: space-between;
+                margin-top: 6px;
+            }
+        }
+
         /* Quantity Incrementor Control inside Price Card */
         .qty-controls {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 20px;
-            padding: 4px 8px;
+            padding: 3px 6px;
         }
 
         .qty-btn {
             border: none;
             background: var(--border);
             color: var(--text-main);
-            width: 28px;
-            height: 28px;
+            width: 26px;
+            height: 26px;
             border-radius: 50%;
             font-weight: 800;
-            font-size: 1rem;
+            font-size: 0.9rem;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: background 0.15s ease;
+            flex-shrink: 0;
         }
 
         .qty-btn:hover { background: #cbd5e1; }
 
         .qty-input {
-            width: 36px;
+            width: 32px;
             text-align: center;
             border: none;
             background: transparent;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-weight: 800;
             outline: none;
             color: var(--text-main);
@@ -821,6 +915,44 @@
         }
 
         .add-to-cart-btn:hover { background: var(--primary-dark); }
+
+        /* Custom Auto-suggest Dropdown Overlay for Search Input */
+        .custom-suggest-container {
+            position: relative;
+            width: 100%;
+        }
+
+        .custom-suggest-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-md);
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 500;
+            display: none;
+            margin-top: 4px;
+        }
+
+        .custom-suggest-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .custom-suggest-item:hover {
+            background: var(--primary-light);
+            color: var(--primary-dark);
+        }
 
         .analytics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
 
@@ -988,8 +1120,17 @@
                     <label>Add Order Items:</label>
                     <div class="item-input-builder">
                         <div class="input-row-inputs">
-                            <input type="text" id="newOrderBuilderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;" oninput="updateDatalistSuggestions(this.value)">
-                            <input type="number" id="newOrderBuilderQty" placeholder="Qty" value="1" style="width:80px; text-align:center;">
+                            <div class="custom-suggest-container" style="flex:1;">
+                                <input type="text" id="newOrderBuilderItemName" class="input-text-standard" placeholder="Type product name or keyword (e.g. gutka)" oninput="handleSearchSuggestInput(this, 'newOrderDropdown')" onfocus="handleSearchSuggestInput(this, 'newOrderDropdown')">
+                                <div id="newOrderDropdown" class="custom-suggest-dropdown"></div>
+                            </div>
+
+                            <!-- Incrementor/Decrementor for Quantity in Order Form -->
+                            <div class="builder-qty-control">
+                                <button class="builder-qty-btn" onclick="adjustBuilderQty('newOrderBuilderQty', -1)">-</button>
+                                <input type="number" id="newOrderBuilderQty" class="builder-qty-input" value="1" min="1">
+                                <button class="builder-qty-btn" onclick="adjustBuilderQty('newOrderBuilderQty', 1)">+</button>
+                            </div>
                         </div>
                         <button class="add-item-btn" onclick="addNewOrderItem()">➕ Add Item to Cart</button>
                     </div>
@@ -1094,14 +1235,21 @@
                 <button class="close-btn" onclick="closeModal('orderFormModal')">✕</button>
             </div>
 
-            <datalist id="productListDatalist"></datalist>
-
             <div class="form-group">
                 <label>Add Order Items:</label>
                 <div class="item-input-builder">
                     <div class="input-row-inputs">
-                        <input type="text" id="builderItemName" list="productListDatalist" placeholder="Type product name (e.g. Sugar)" style="flex:1;" oninput="updateDatalistSuggestions(this.value)">
-                        <input type="number" id="builderQty" placeholder="Qty" value="1" style="width:80px; text-align:center;">
+                        <div class="custom-suggest-container" style="flex:1;">
+                            <input type="text" id="builderItemName" class="input-text-standard" placeholder="Type product name or keyword (e.g. gutka)" oninput="handleSearchSuggestInput(this, 'builderDropdown')" onfocus="handleSearchSuggestInput(this, 'builderDropdown')">
+                            <div id="builderDropdown" class="custom-suggest-dropdown"></div>
+                        </div>
+
+                        <!-- Incrementor/Decrementor for Quantity in Modal -->
+                        <div class="builder-qty-control">
+                            <button class="builder-qty-btn" onclick="adjustBuilderQty('builderQty', -1)">-</button>
+                            <input type="number" id="builderQty" class="builder-qty-input" value="1" min="1">
+                            <button class="builder-qty-btn" onclick="adjustBuilderQty('builderQty', 1)">+</button>
+                        </div>
                     </div>
                     <button class="add-item-btn" onclick="addOrderItem()">➕ Add Item to Cart</button>
                 </div>
@@ -1139,7 +1287,7 @@
         
         let productMapBySKU = {};
         let productMapByNameAndPrice = {};
-        let cardQtyMap = {}; // Tracks qty per SKU on price list cards
+        let cardQtyMap = {};
         
         let processedCustomers = [];
         let activeOrderCustomer = null;
@@ -1306,8 +1454,6 @@
                         productMapByNameAndPrice[suggestionLabel.toLowerCase()] = { sku, name, price, costPrice };
                     }
                 });
-
-                updateDatalistSuggestions('');
 
                 processCustomerScoresAndRanks();
                 renderCustomersGrid(processedCustomers);
@@ -1538,7 +1684,7 @@
             let bestProduct = null;
             let highestScore = 0;
 
-            const cleanQuery = query.split(' (🏷️')[0].split(' - ₹')[0].trim();
+            const cleanQuery = query.trim();
 
             rawProducts.forEach(p => {
                 const score = getMatchScore(p, cleanQuery);
@@ -1560,28 +1706,64 @@
             return null;
         }
 
-        function updateDatalistSuggestions(query) {
-            const datalist = document.getElementById('productListDatalist');
-            if (!datalist) return;
+        // Custom Dropdown Suggestion Renderer (Fixes browser native datalist hiding keyword-matched items)
+        function handleSearchSuggestInput(inputEl, dropdownId) {
+            const dropdown = document.getElementById(dropdownId);
+            if (!dropdown) return;
 
-            let listToRender = rawProducts;
-            const q = query ? query.trim().toLowerCase() : '';
-
-            if (q) {
-                listToRender = rawProducts
-                    .map(p => ({ product: p, score: getMatchScore(p, q) }))
-                    .filter(item => item.score > 0)
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, 15)
-                    .map(item => item.product);
+            const query = inputEl.value.trim();
+            if (!query) {
+                dropdown.style.display = 'none';
+                return;
             }
 
-            datalist.innerHTML = listToRender.map(p => {
+            const scoredMatches = rawProducts
+                .map(p => ({ product: p, score: getMatchScore(p, query) }))
+                .filter(item => item.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 10);
+
+            if (!scoredMatches.length) {
+                dropdown.style.display = 'none';
+                return;
+            }
+
+            dropdown.innerHTML = scoredMatches.map(m => {
+                const p = m.product;
                 const sku = (p['SKU'] || '').trim();
                 const name = p['Item Name'] || p['Standard Name'] || sku;
                 const price = parseFloat(p['Price per Unit'] || 0);
-                return `<option value="${name} - ₹${price}"></option>`;
+
+                return `
+                <div class="custom-suggest-item" onclick="selectSuggestedProduct('${inputEl.id}', '${dropdownId}', '${name.replace(/'/g, "\'")}')">
+                    <span>${name}</span>
+                    <span style="color:var(--primary-dark); font-weight:800;">₹${price}</span>
+                </div>
+                `;
             }).join('');
+
+            dropdown.style.display = 'block';
+        }
+
+        function selectSuggestedProduct(inputId, dropdownId, name) {
+            document.getElementById(inputId).value = name;
+            document.getElementById(dropdownId).style.display = 'none';
+        }
+
+        // Close search suggestion dropdowns when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.custom-suggest-container')) {
+                document.querySelectorAll('.custom-suggest-dropdown').forEach(d => d.style.display = 'none');
+            }
+        });
+
+        function adjustBuilderQty(inputId, delta) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            let val = parseInt(input.value) || 1;
+            val += delta;
+            if (val < 1) val = 1;
+            input.value = val;
         }
 
         function adjustCardQty(sku, delta) {
@@ -1601,7 +1783,6 @@
             const qtyInput = document.getElementById(`card-qty-${sku}`);
             const qty = qtyInput ? (parseInt(qtyInput.value) || 1) : 1;
 
-            // Depending on active context, add item to active order form
             if (document.getElementById('orderFormModal').classList.contains('active')) {
                 cartItems.push({
                     sku: prod.sku,
@@ -1658,11 +1839,11 @@
 
                 return `
                 <div class="price-card">
-                    <div style="flex:1;">
+                    <div class="price-card-info">
                         <div class="price-card-name">${name}</div>
                     </div>
                     
-                    <div style="display:flex; align-items:center; gap:12px;">
+                    <div class="price-card-actions">
                         <div class="price-card-val">₹${price}</div>
                         
                         <div class="qty-controls">
@@ -1847,7 +2028,7 @@
 
             document.getElementById('builderItemName').value = '';
             document.getElementById('builderQty').value = '1';
-            updateDatalistSuggestions('');
+            document.getElementById('builderDropdown').style.display = 'none';
             renderCart();
         }
 
@@ -1893,10 +2074,16 @@
                 return;
             }
 
-            let message = `🛒 *NEW ORDER - GO-KIRANA*\n\n`;
-            message += `👤 *Shopkeeper:* ${activeOrderCustomer.custName}\n`;
-            message += `📱 *Mobile:* +91 ${activeOrderCustomer.mobile}\n\n`;
-            message += `📦 *Order Items:*\n`;
+            let message = `🛒 *NEW ORDER - GO-KIRANA*
+
+`;
+            message += `👤 *Shopkeeper:* ${activeOrderCustomer.custName}
+`;
+            message += `📱 *Mobile:* +91 ${activeOrderCustomer.mobile}
+
+`;
+            message += `📦 *Order Items:*
+`;
 
             let approxTotal = 0;
             let approxCostTotal = 0;
@@ -1908,18 +2095,22 @@
                     if (item.costPrice) {
                         approxCostTotal += item.costPrice * item.qty;
                     }
-                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - ₹${item.unitPrice} = ₹${itemTotal}\n`;
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - ₹${item.unitPrice} = ₹${itemTotal}
+`;
                 } else {
-                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - Price N/A\n`;
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - Price N/A
+`;
                 }
             });
 
-            message += `\n💰 *Approx Total Amount:* ₹${approxTotal.toLocaleString('en-IN')}`;
+            message += `
+💰 *Approx Total Amount:* ₹${approxTotal.toLocaleString('en-IN')}`;
 
             const approxProfit = approxTotal - approxCostTotal;
             if (approxTotal > 0 && approxCostTotal > 0) {
                 const marginPct = ((approxProfit / approxTotal) * 100).toFixed(2);
-                message += `\n📈 *Est. Profit:* ₹${approxProfit.toLocaleString('en-IN')} (${marginPct}%)`;
+                message += `
+📈 *Est. Profit:* ₹${approxProfit.toLocaleString('en-IN')} (${marginPct}%)`;
             }
 
             const encodedMsg = encodeURIComponent(message);
@@ -1956,7 +2147,7 @@
 
             document.getElementById('newOrderBuilderItemName').value = '';
             document.getElementById('newOrderBuilderQty').value = '1';
-            updateDatalistSuggestions('');
+            document.getElementById('newOrderDropdown').style.display = 'none';
             renderNewOrderCart();
         }
 
@@ -2017,10 +2208,16 @@
                 return;
             }
 
-            let message = `✨ *NEW CUSTOMER ORDER - GO-KIRANA*\n\n`;
-            message += `👤 *Shopkeeper Name:* ${name}\n`;
-            message += `📱 *Mobile Number:* +91 ${mobile}\n\n`;
-            message += `📦 *Order Items:*\n`;
+            let message = `✨ *NEW CUSTOMER ORDER - GO-KIRANA*
+
+`;
+            message += `👤 *Shopkeeper Name:* ${name}
+`;
+            message += `📱 *Mobile Number:* +91 ${mobile}
+
+`;
+            message += `📦 *Order Items:*
+`;
 
             let approxTotal = 0;
             let approxCostTotal = 0;
@@ -2032,18 +2229,22 @@
                     if (item.costPrice) {
                         approxCostTotal += item.costPrice * item.qty;
                     }
-                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - ₹${item.unitPrice} = ₹${itemTotal}\n`;
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - ₹${item.unitPrice} = ₹${itemTotal}
+`;
                 } else {
-                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - Price N/A\n`;
+                    message += `${index + 1}. ${item.name} (Qty: ${item.qty}) - Price N/A
+`;
                 }
             });
 
-            message += `\n💰 *Approx Total Amount:* ₹${approxTotal.toLocaleString('en-IN')}`;
+            message += `
+💰 *Approx Total Amount:* ₹${approxTotal.toLocaleString('en-IN')}`;
 
             const approxProfit = approxTotal - approxCostTotal;
             if (approxTotal > 0 && approxCostTotal > 0) {
                 const marginPct = ((approxProfit / approxTotal) * 100).toFixed(2);
-                message += `\n📈 *Est. Profit:* ₹${approxProfit.toLocaleString('en-IN')} (${marginPct}%)`;
+                message += `
+📈 *Est. Profit:* ₹${approxProfit.toLocaleString('en-IN')} (${marginPct}%)`;
             }
 
             const encodedMsg = encodeURIComponent(message);
