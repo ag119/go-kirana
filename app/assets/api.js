@@ -1,0 +1,164 @@
+/* ==========================================================================
+   Go-Kirana Staff Console — API layer
+   Talks only to the Apps Script Web App below. The Sheet ID never appears
+   here or anywhere else in browser-visible code — it lives server-side in
+   apps-script/Code.gs. All data reads/writes require a valid session token.
+   ========================================================================== */
+(function (global) {
+    'use strict';
+
+    // Deployed Apps Script Web App /exec URL. Not secret (it's just an
+    // endpoint) — every action except 'login' requires a valid session token.
+    const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby8S-xJfePRaCezAlM8onrl5FOSq4VC1l_JS0_pBwdznIM2NV1uwy2hgeGXbqAomsgYUA/exec';
+
+    const SESSION_KEY = 'gk_session';
+
+    function getSession() {
+        try {
+            const raw = localStorage.getItem(SESSION_KEY);
+            if (!raw) return null;
+            const session = JSON.parse(raw);
+            if (!session || !session.token || !session.expiresAt) return null;
+            if (Date.now() >= session.expiresAt) {
+                localStorage.removeItem(SESSION_KEY);
+                return null;
+            }
+            return session;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function setSession(session) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
+
+    function clearSession() {
+        localStorage.removeItem(SESSION_KEY);
+    }
+
+    // Sheet-data cache: switching between Agent Hub / Admin / Record Order
+    // used to re-fetch Customers/Orders/Order Details/Products from Apps
+    // Script on every single navigation. Cache each sheet in localStorage
+    // for CACHE_TTL_MS so tab-switching reuses recent data instead of
+    // re-syncing; the shell's Refresh button passes {force:true} to bypass it.
+    const CACHE_PREFIX = 'gk_cache_';
+    const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+    function readCache(key) {
+        try {
+            const raw = localStorage.getItem(CACHE_PREFIX + key);
+            if (!raw) return null;
+            const entry = JSON.parse(raw);
+            if (!entry || entry.ts === undefined || Date.now() - entry.ts > CACHE_TTL_MS) return null;
+            return entry;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function writeCache(key, data) {
+        try {
+            localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ data, ts: Date.now() }));
+        } catch (e) {
+            // localStorage full/unavailable — caching is best-effort, ignore
+        }
+    }
+
+    function clearCache() {
+        Object.keys(localStorage)
+            .filter(k => k.startsWith(CACHE_PREFIX))
+            .forEach(k => localStorage.removeItem(k));
+    }
+
+    async function call(payload) {
+        const res = await fetch(WEB_APP_URL, {
+            method: 'POST',
+            mode: 'cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data && data.code === 'AUTH_REQUIRED') {
+            clearSession();
+        }
+        return data;
+    }
+
+    async function login(username, password) {
+        const data = await call({ action: 'login', username, password });
+        if (data && data.status === 'success' && data.token) {
+            setSession({ token: data.token, user: username, role: data.role || 'agent', expiresAt: data.expiresAt });
+            return true;
+        }
+        throw new Error((data && data.message) || 'Invalid username or password.');
+    }
+
+    function logout() {
+        clearSession();
+    }
+
+    function requireToken() {
+        const session = getSession();
+        if (!session) throw new Error('Not logged in.');
+        return session.token;
+    }
+
+    // Returns rows in the same shape the old gviz JSONP fetch produced:
+    // an array of { columnHeader: value, ... } objects. Pass {force:true}
+    // to bypass the cache (used by the shell's Refresh button).
+    async function getSheet(sheetName, opts) {
+        const cacheKey = 'sheet:' + sheetName;
+        if (!(opts && opts.force)) {
+            const cached = readCache(cacheKey);
+            if (cached) return cached.data;
+        }
+
+        const token = requireToken();
+        const data = await call({ action: 'getSheet', token, sheet: sheetName });
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || `Failed to load "${sheetName}"`);
+        }
+        writeCache(cacheKey, data.rows || []);
+        return data.rows || [];
+    }
+
+    // Fetch several tabs in one round trip.
+    async function getSheets(sheetNames, opts) {
+        const cacheKey = 'sheets:' + sheetNames.slice().sort().join(',');
+        if (!(opts && opts.force)) {
+            const cached = readCache(cacheKey);
+            if (cached) return cached.data;
+        }
+
+        const token = requireToken();
+        const data = await call({ action: 'getSheets', token, sheets: sheetNames });
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to load sheet data');
+        }
+        writeCache(cacheKey, data.data || {});
+        return data.data || {};
+    }
+
+    async function createOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'createOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to record order.');
+        }
+        clearCache(); // Orders/Order Details/Customers stats just changed server-side
+        return data;
+    }
+
+    global.GK = global.GK || {};
+    global.GK.api = {
+        login,
+        logout,
+        getSheet,
+        getSheets,
+        createOrder,
+        isLoggedIn: () => !!getSession(),
+        currentUser: () => (getSession() || {}).user || null,
+        currentRole: () => (getSession() || {}).role || 'agent'
+    };
+})(window);

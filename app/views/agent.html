@@ -1,0 +1,269 @@
+    <div class="container">
+        <div id="status-banner" class="status-loading">📡 Connecting live to Google Sheet...</div>
+
+        <!-- Navigation Pills -->
+        <div class="nav-pills" id="mainNavPills">
+            <button class="pill-btn active" onclick="switchTab('homeTab')">🏠 Dashboard</button>
+            <button class="pill-btn" onclick="switchTab('customersTab')">🏆 Customers</button>
+            <button class="pill-btn" onclick="switchTab('followupTab')">🚨 Follow Up</button>
+            <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
+            <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
+            <button class="pill-btn" onclick="switchTab('ordersTab')">📦 Orders Stream</button>
+        </div>
+
+        <!-- TAB 0: HOME PAGE (4 PRIMARY CARDS) -->
+        <div id="homeTab" class="tab-content active">
+            <div style="text-align:center; margin-bottom:24px;">
+                <h2 style="font-size:1.5rem; font-weight:800;">Welcome to Go-Kirana</h2>
+                <p style="font-size:0.9rem; color:var(--text-muted);">Select an operational module below to get started</p>
+            </div>
+
+            <div class="home-grid">
+                <!-- Card 1: Customers -->
+                <div class="home-card" onclick="switchTab('customersTab')">
+                    <div class="home-card-icon">🏆</div>
+                    <h3>1. Customers</h3>
+                    <p>Rankings, engagement scores & individual store history</p>
+                </div>
+
+                <!-- Card 2: Follow Up -->
+                <div class="home-card" onclick="switchTab('followupTab')">
+                    <div class="home-card-icon" style="background:#fee2e2; color:#ef4444;">🚨</div>
+                    <h3>2. Follow Up</h3>
+                    <p>Intelligent alerts for overdue shopkeeper re-orders</p>
+                </div>
+
+                <!-- Card 3: New Order -->
+                <div class="home-card" onclick="switchTab('newOrderTab')">
+                    <div class="home-card-icon" style="background:#e0e7ff; color:#3730a3;">✨</div>
+                    <h3>3. New Order</h3>
+                    <p>Quick order builder for new or unregistered customers</p>
+                </div>
+
+                <!-- Card 4: Price List -->
+                <div class="home-card" onclick="switchTab('priceTab')">
+                    <div class="home-card-icon" style="background:#fef3c7; color:#d97706;">🏷️</div>
+                    <h3>4. Price List</h3>
+                    <p>Fuzzy-search enabled product catalog & search keywords</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: CUSTOMERS RANKED -->
+        <div id="customersTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="custSearch" placeholder="Search customer by name or phone..." onkeyup="filterCustomers()">
+            </div>
+
+            <div class="section-title">
+                <span>Ranked Shopkeepers</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="custCount">0 Customers</span>
+            </div>
+
+            <div class="cards-grid" id="customersGrid"></div>
+        </div>
+
+        <!-- TAB 2: FOLLOW UP ALERTS -->
+        <div id="followupTab" class="tab-content">
+            <div style="background: #fef2f2; border:1px solid #fecaca; padding:16px; border-radius:var(--radius-md); margin-bottom:20px;">
+                <h3 style="color:#991b1b; font-size:0.95rem; font-weight:800; margin-bottom:4px;">🚨 Intelligent Follow-up System</h3>
+                <p style="color:#7f1d1d; font-size:0.8rem; font-weight:500;">
+                    Shopkeepers overdue based on their personalized target frequency.
+                </p>
+            </div>
+
+            <div class="cards-grid" id="followupGrid"></div>
+        </div>
+
+        <!-- TAB 3: PRICE LIST (CARD VIEW WITH ENHANCED FUZZY MATCH) -->
+        <div id="priceTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="priceSearch" placeholder="Search by name, SKU, or keywords (fuzzy match supported)..." onkeyup="filterPriceList()">
+            </div>
+
+            <div class="section-title">
+                <span>Product Catalog</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="priceItemCount">0 Items</span>
+            </div>
+
+            <div class="price-cards-list" id="priceListCardsContainer"></div>
+        </div>
+
+        <!-- TAB 4: NEW ORDER TAB (UNREGISTERED CUSTOMER) -->
+        <div id="newOrderTab" class="tab-content">
+            <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto;">
+                <div class="section-title" style="margin-bottom:6px;">
+                    <span>✨ Order for New Shopkeeper</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
+                    Create an order for a new customer not yet registered in our database.
+                </p>
+
+                <div class="form-group">
+                    <label>Shopkeeper Name *</label>
+                    <input type="text" id="newCustName" class="input-text-standard" placeholder="e.g. Rahul Sharma">
+                </div>
+
+                <div class="form-group">
+                    <label>Mobile Number *</label>
+                    <input type="tel" id="newCustMobile" class="input-text-standard" placeholder="e.g. 9876543210">
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border); margin: 20px 0;">
+
+                <div class="form-group">
+                    <label>Add Order Items:</label>
+                    <div class="item-input-builder">
+                        <div class="input-row-inputs">
+                            <div class="custom-suggest-container" style="flex:1;">
+                                <input type="text" id="newOrderBuilderItemName" class="input-text-standard" placeholder="Type product name or keyword (e.g. gutka)" oninput="handleSearchSuggestInput(this, 'newOrderDropdown')" onfocus="handleSearchSuggestInput(this, 'newOrderDropdown')">
+                                <div id="newOrderDropdown" class="custom-suggest-dropdown"></div>
+                            </div>
+
+                            <!-- Incrementor/Decrementor for Quantity in Order Form -->
+                            <div class="builder-qty-control">
+                                <button class="builder-qty-btn" onclick="adjustBuilderQty('newOrderBuilderQty', -1)">-</button>
+                                <input type="number" id="newOrderBuilderQty" class="builder-qty-input" value="1" min="1">
+                                <button class="builder-qty-btn" onclick="adjustBuilderQty('newOrderBuilderQty', 1)">+</button>
+                            </div>
+                        </div>
+                        <button class="add-item-btn" onclick="addNewOrderItem()">➕ Add Item to Cart</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Cart Summary:</label>
+                    <div id="newOrderCartItemsList" style="background:var(--bg); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); min-height:80px; max-height:200px; overflow-y:auto;">
+                        <p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                    <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
+                    <strong style="font-size:1.2rem; color:var(--primary-dark);" id="newOrderCartEstimatedTotal">₹0</strong>
+                </div>
+
+                <button class="whatsapp-send-btn" onclick="sendNewCustomerOrderToWhatsApp()">
+                    💬 Send New Customer Order to WhatsApp
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB 5: ALL ORDERS STREAM -->
+        <div id="ordersTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="orderSearch" placeholder="Search order ID or customer name..." onkeyup="filterOrders()">
+            </div>
+            <div id="ordersListStream"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 1: CUSTOMER ORDERS & SMART RECOMMENDATIONS -->
+    <div class="modal-overlay" id="detailsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="modalCustName">Customer Profile</h2>
+                    <p id="modalCustMeta">Customer details & order breakdown</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('detailsModal')">✕</button>
+            </div>
+
+            <div class="recommendation-box">
+                <div class="rec-title">
+                    <span>🧠 Smart Predicted Next Items</span>
+                    <span style="font-size:0.75rem; color:var(--primary-dark); font-weight:600;">Probabilistic AI Score</span>
+                </div>
+                <div class="rec-chips" id="modalRecChips"></div>
+            </div>
+
+            <div class="section-title" style="font-size:0.95rem; margin-bottom:12px;">Order History</div>
+            <div id="modalOrdersBody"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: DEEP ANALYTICS DRAWER -->
+    <div class="modal-overlay" id="analyticsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="analyticsCustName">Deep Analytics</h2>
+                    <p>Profitability & Performance breakdown</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('analyticsModal')">✕</button>
+            </div>
+
+            <div class="analytics-grid">
+                <div class="analytics-card">
+                    <span>Total Revenue</span>
+                    <strong id="anTotalRev">₹0</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Net Profit</span>
+                    <strong id="anNetProfit" style="color:#10b981;">₹0</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Profit Margin (%)</span>
+                    <strong id="anProfitMargin">0%</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Avg Profit / Order</span>
+                    <strong id="anAvgProfit">₹0</strong>
+                </div>
+            </div>
+
+            <div style="background:var(--card-bg); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border);">
+                <div class="section-title" style="font-size:0.9rem;">Order Profitability Breakdown</div>
+                <div id="analyticsOrdersList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: ORDER FORM TO WHATSAPP -->
+    <div class="modal-overlay" id="orderFormModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2>Take New Order</h2>
+                    <p id="orderFormCustMeta">Shopkeeper Order Entry</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('orderFormModal')">✕</button>
+            </div>
+
+            <div class="form-group">
+                <label>Add Order Items:</label>
+                <div class="item-input-builder">
+                    <div class="input-row-inputs">
+                        <div class="custom-suggest-container" style="flex:1;">
+                            <input type="text" id="builderItemName" class="input-text-standard" placeholder="Type product name or keyword (e.g. gutka)" oninput="handleSearchSuggestInput(this, 'builderDropdown')" onfocus="handleSearchSuggestInput(this, 'builderDropdown')">
+                            <div id="builderDropdown" class="custom-suggest-dropdown"></div>
+                        </div>
+
+                        <!-- Incrementor/Decrementor for Quantity in Modal -->
+                        <div class="builder-qty-control">
+                            <button class="builder-qty-btn" onclick="adjustBuilderQty('builderQty', -1)">-</button>
+                            <input type="number" id="builderQty" class="builder-qty-input" value="1" min="1">
+                            <button class="builder-qty-btn" onclick="adjustBuilderQty('builderQty', 1)">+</button>
+                        </div>
+                    </div>
+                    <button class="add-item-btn" onclick="addOrderItem()">➕ Add Item to Cart</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Cart Summary:</label>
+                <div id="cartItemsList" style="background:var(--bg); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); min-height:80px; max-height:200px; overflow-y:auto;">
+                    <p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
+                <strong style="font-size:1.2rem; color:var(--primary-dark);" id="cartEstimatedTotal">₹0</strong>
+            </div>
+
+            <button class="whatsapp-send-btn" onclick="sendOrderToWhatsApp()">
+                💬 Send Order to WhatsApp
+            </button>
+        </div>
+    </div>

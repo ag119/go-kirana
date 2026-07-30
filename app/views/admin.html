@@ -1,0 +1,312 @@
+    <div class="container">
+        <div id="status-banner" class="status-loading">📡 Connecting live to Google Sheet...</div>
+
+        <!-- Navigation Pills -->
+        <div class="nav-pills">
+            <button class="pill-btn active" onclick="switchTab('customersTab')">🏆 Customer Rankings</button>
+            <button class="pill-btn" onclick="switchTab('followupTab')">🚨 Follow-up Alerts</button>
+            <button class="pill-btn" onclick="switchTab('dashboardTab')">📈 Store Analytics</button>
+            <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
+            <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
+            <button class="pill-btn" onclick="switchTab('shopInsightsTab')">🧾 Shop Insights</button>
+            <button class="pill-btn" onclick="switchTab('inventoryTab')">🧭 Inventory Guide</button>
+            <button class="pill-btn" onclick="switchTab('ordersTab')">📦 All Orders Stream</button>
+        </div>
+
+        <!-- TAB 1: CUSTOMERS RANKED -->
+        <div id="customersTab" class="tab-content active">
+            <div class="search-box">
+                <input type="text" id="custSearch" placeholder="Search customer by name or phone..." onkeyup="filterCustomers()">
+            </div>
+
+            <div class="section-title">
+                <span>Ranked Shopkeepers</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="custCount">0 Customers</span>
+            </div>
+
+            <div class="cards-grid" id="customersGrid"></div>
+        </div>
+
+        <!-- TAB 2: FOLLOW UP ALERTS -->
+        <div id="followupTab" class="tab-content">
+            <div style="background: #fef2f2; border:1px solid #fecaca; padding:16px; border-radius:var(--radius-md); margin-bottom:20px;">
+                <h3 style="color:#991b1b; font-size:0.95rem; font-weight:800; margin-bottom:4px;">🚨 Intelligent Follow-up System</h3>
+                <p style="color:#7f1d1d; font-size:0.8rem; font-weight:500;">
+                    Shopkeepers overdue based on their personalized target frequency.
+                </p>
+            </div>
+
+            <div class="cards-grid" id="followupGrid"></div>
+        </div>
+
+        <!-- TAB 3: STORE ANALYTICS DASHBOARD -->
+        <div id="dashboardTab" class="tab-content">
+            <div class="section-title">Today</div>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Today's Sales</div>
+                    <div class="kpi-num" id="kpi-day-sales">₹0</div>
+                </div>
+                <div class="kpi-card blue">
+                    <div class="kpi-label">Today's Orders</div>
+                    <div class="kpi-num" id="kpi-day-orders">0</div>
+                </div>
+                <div class="kpi-card orange">
+                    <div class="kpi-label">Today's Profit / Loss</div>
+                    <div class="kpi-num" id="kpi-day-profit">₹0</div>
+                </div>
+            </div>
+
+            <div class="section-title">This Month</div>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Month's Sales</div>
+                    <div class="kpi-num" id="kpi-month-sales">₹0</div>
+                </div>
+                <div class="kpi-card blue">
+                    <div class="kpi-label">Month's Orders</div>
+                    <div class="kpi-num" id="kpi-month-orders">0</div>
+                </div>
+                <div class="kpi-card orange">
+                    <div class="kpi-label">Month's Profit / Loss</div>
+                    <div class="kpi-num" id="kpi-month-profit">₹0</div>
+                </div>
+            </div>
+
+            <div class="section-title">Overall</div>
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Total Revenue</div>
+                    <div class="kpi-num" id="kpi-revenue">₹0</div>
+                </div>
+                <div class="kpi-card blue">
+                    <div class="kpi-label">Total Orders</div>
+                    <div class="kpi-num" id="kpi-orders">0</div>
+                </div>
+                <div class="kpi-card orange">
+                    <div class="kpi-label">Net Profit / Loss</div>
+                    <div class="kpi-num" id="kpi-profit">₹0</div>
+                </div>
+                <div class="kpi-card purple">
+                    <div class="kpi-label">Average Order Value</div>
+                    <div class="kpi-num" id="kpi-aov">₹0</div>
+                </div>
+            </div>
+
+            <div style="background:var(--card-bg); padding:20px; border-radius:var(--radius-lg); border:1px solid var(--border);">
+                <div class="section-title">Monthly Revenue Performance</div>
+                <canvas id="monthlyChart" height="120"></canvas>
+            </div>
+        </div>
+
+        <!-- TAB 4: PRICE LIST (CARD VIEW) -->
+        <div id="priceTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="priceSearch" placeholder="Search by name, SKU, or keywords (fuzzy match supported)..." onkeyup="filterPriceList()">
+            </div>
+
+            <div class="section-title">
+                <span>Product Catalog</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="priceItemCount">0 Items</span>
+            </div>
+
+            <div class="price-cards-list" id="priceListCardsContainer"></div>
+        </div>
+
+        <!-- TAB 5: NEW ORDER TAB (UNREGISTERED CUSTOMER) -->
+        <div id="newOrderTab" class="tab-content">
+            <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto;">
+                <div class="section-title" style="margin-bottom:6px;">
+                    <span>✨ Order for New Shopkeeper</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
+                    Create an order for a new customer not yet registered in our database.
+                </p>
+
+                <div class="form-group">
+                    <label>Shopkeeper Name *</label>
+                    <input type="text" id="newCustName" class="input-text-standard" placeholder="e.g. Rahul Sharma">
+                </div>
+
+                <div class="form-group">
+                    <label>Mobile Number *</label>
+                    <input type="tel" id="newCustMobile" class="input-text-standard" placeholder="e.g. 9876543210">
+                </div>
+
+                <hr style="border: 0; border-top: 1px dashed var(--border); margin: 20px 0;">
+
+                <div class="form-group">
+                    <label>Add Order Items:</label>
+                    <div class="item-input-builder">
+                        <div class="input-row-inputs">
+                            <div class="custom-suggest-container" style="flex:1;">
+                                <input type="text" id="newOrderBuilderItemName" class="input-text-standard" placeholder="Type product name or keyword (e.g. gutka)" oninput="handleSearchSuggestInput(this, 'newOrderDropdown')" onfocus="handleSearchSuggestInput(this, 'newOrderDropdown')">
+                                <div id="newOrderDropdown" class="custom-suggest-dropdown"></div>
+                            </div>
+                            <div class="builder-qty-control">
+                                <button class="builder-qty-btn" onclick="adjustBuilderQty('newOrderBuilderQty', -1)">-</button>
+                                <input type="number" id="newOrderBuilderQty" class="builder-qty-input" value="1" min="1">
+                                <button class="builder-qty-btn" onclick="adjustBuilderQty('newOrderBuilderQty', 1)">+</button>
+                            </div>
+                        </div>
+                        <button class="add-item-btn" onclick="addNewOrderItem()">➕ Add Item to Cart</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Cart Summary:</label>
+                    <div id="newOrderCartItemsList" style="background:var(--bg); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); min-height:80px; max-height:200px; overflow-y:auto;">
+                        <p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                    <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
+                    <strong style="font-size:1.2rem; color:var(--primary-dark);" id="newOrderCartEstimatedTotal">₹0</strong>
+                </div>
+
+                <button class="whatsapp-send-btn" onclick="sendNewCustomerOrderToWhatsApp()">
+                    💬 Send New Customer Order to WhatsApp
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB: SHOP INSIGHTS -->
+        <div id="shopInsightsTab" class="tab-content">
+            <div class="form-group">
+                <label>Select Shopkeeper:</label>
+                <select id="shopInsightSelect" onchange="renderShopInsights()" style="width:100%; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:var(--card-bg); font-size:0.9rem; font-family:inherit; box-shadow:var(--shadow-sm); outline:none;">
+                    <option value="">— Choose a shop —</option>
+                </select>
+            </div>
+            <div id="si-meta" style="font-size:0.8rem; color:var(--text-muted); font-weight:700; margin-bottom:14px;"></div>
+            <div id="si-table1"></div>
+            <div id="si-table2" style="margin-top:24px;"><p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">Select a shop to see its reorder list and upsell recommendations.</p></div>
+        </div>
+
+        <!-- TAB: INVENTORY GUIDE -->
+        <div id="inventoryTab" class="tab-content">
+            <div class="section-title">
+                <span>🧭 Inventory Guide</span>
+                <span id="invGuideRange" style="font-size:0.8rem; color:var(--text-muted); font-weight:600;"></span>
+            </div>
+            <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:14px;">Store-wide demand over the last 30 days — what's moving, what it earns. Ordered by total revenue.</p>
+            <div id="invGuideBody"></div>
+        </div>
+
+        <!-- TAB 6: ALL ORDERS STREAM -->
+        <div id="ordersTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="orderSearch" placeholder="Search order ID or customer name..." onkeyup="filterOrders()">
+            </div>
+            <div id="ordersListStream"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 1: CUSTOMER ORDERS & SMART RECOMMENDATIONS -->
+    <div class="modal-overlay" id="detailsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="modalCustName">Customer Profile</h2>
+                    <p id="modalCustMeta">Customer details & order breakdown</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('detailsModal')">✕</button>
+            </div>
+
+            <div class="recommendation-box">
+                <div class="rec-title">
+                    <span>🧠 Smart Predicted Next Items</span>
+                    <span style="font-size:0.75rem; color:var(--primary-dark); font-weight:600;">Probabilistic AI Score</span>
+                </div>
+                <div class="rec-chips" id="modalRecChips"></div>
+            </div>
+
+            <div class="section-title" style="font-size:0.95rem; margin-bottom:12px;">Order History</div>
+            <div id="modalOrdersBody"></div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: DEEP ANALYTICS DRAWER -->
+    <div class="modal-overlay" id="analyticsModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="analyticsCustName">Deep Analytics</h2>
+                    <p>Profitability & Performance breakdown</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('analyticsModal')">✕</button>
+            </div>
+
+            <div class="analytics-grid">
+                <div class="analytics-card">
+                    <span>Total Revenue</span>
+                    <strong id="anTotalRev">₹0</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Net Profit</span>
+                    <strong id="anNetProfit" style="color:#10b981;">₹0</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Profit Margin (%)</span>
+                    <strong id="anProfitMargin">0%</strong>
+                </div>
+                <div class="analytics-card">
+                    <span>Avg Profit / Order</span>
+                    <strong id="anAvgProfit">₹0</strong>
+                </div>
+            </div>
+
+            <div style="background:var(--card-bg); padding:16px; border-radius:var(--radius-md); border:1px solid var(--border);">
+                <div class="section-title" style="font-size:0.9rem;">Order Profitability Breakdown</div>
+                <div id="analyticsOrdersList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: ORDER FORM TO WHATSAPP -->
+    <div class="modal-overlay" id="orderFormModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2>Take New Order</h2>
+                    <p id="orderFormCustMeta">Shopkeeper Order Entry</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('orderFormModal')">✕</button>
+            </div>
+
+            <div class="form-group">
+                <label>Add Order Items:</label>
+                <div class="item-input-builder">
+                    <div class="input-row-inputs">
+                        <div class="custom-suggest-container" style="flex:1;">
+                            <input type="text" id="builderItemName" class="input-text-standard" placeholder="Type product name or keyword (e.g. gutka)" oninput="handleSearchSuggestInput(this, 'builderDropdown')" onfocus="handleSearchSuggestInput(this, 'builderDropdown')">
+                            <div id="builderDropdown" class="custom-suggest-dropdown"></div>
+                        </div>
+                        <div class="builder-qty-control">
+                            <button class="builder-qty-btn" onclick="adjustBuilderQty('builderQty', -1)">-</button>
+                            <input type="number" id="builderQty" class="builder-qty-input" value="1" min="1">
+                            <button class="builder-qty-btn" onclick="adjustBuilderQty('builderQty', 1)">+</button>
+                        </div>
+                    </div>
+                    <button class="add-item-btn" onclick="addOrderItem()">➕ Add Item to Cart</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Cart Summary:</label>
+                <div id="cartItemsList" style="background:var(--bg); padding:12px; border-radius:var(--radius-md); border:1px solid var(--border); min-height:80px; max-height:200px; overflow-y:auto;">
+                    <p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
+                <strong style="font-size:1.2rem; color:var(--primary-dark);" id="cartEstimatedTotal">₹0</strong>
+            </div>
+
+            <button class="whatsapp-send-btn" onclick="sendOrderToWhatsApp()">
+                💬 Send Order to WhatsApp
+            </button>
+        </div>
+    </div>

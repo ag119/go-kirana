@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Go-Kirana Staff Console</title>
+    <meta name="robots" content="noindex, nofollow">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/theme.css">
+
+    <!-- PWA: installable app shell -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#10b981">
+    <link rel="icon" href="assets/icons/favicon-64.png">
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Go-Kirana">
+</head>
+<body>
+
+    <!-- LOGIN OVERLAY (shared across every internal tool) -->
+    <div id="login-overlay">
+        <div class="login-card">
+            <div style="font-size:2.5rem; margin-bottom:12px;">🏪</div>
+            <h2>Go-Kirana Staff Console</h2>
+            <p>Please sign in to access Agent Hub, Admin & Record Order</p>
+
+            <div class="login-field">
+                <label>Username</label>
+                <input type="text" id="loginUsername" placeholder="Enter username" autocomplete="username">
+            </div>
+
+            <div class="login-field">
+                <label>Password</label>
+                <input type="password" id="loginPassword" placeholder="Enter password" autocomplete="current-password">
+            </div>
+
+            <button class="login-btn" id="loginSubmitBtn">🔓 Sign In</button>
+            <div id="login-error-msg">Invalid username or password.</div>
+        </div>
+    </div>
+
+    <!-- APP SHELL HEADER -->
+    <header class="app-shell-header">
+        <div class="header-container">
+            <div class="brand" id="brandHome">
+                <div class="brand-icon">🏪</div>
+                <div class="brand-text">
+                    <h1>Go-Kirana</h1>
+                    <p>Staff Console</p>
+                </div>
+            </div>
+
+            <div class="app-switcher" id="appSwitcher">
+                <button class="app-switcher-btn route-btn" data-route="agent">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                    Agent Hub
+                </button>
+                <button class="app-switcher-btn route-btn" data-route="admin">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+                    Admin
+                </button>
+                <button class="app-switcher-btn route-btn" data-route="orders">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 3h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 11h6M9 15h6M9 19h3"/></svg>
+                    Record Order
+                </button>
+            </div>
+
+            <div class="header-actions">
+                <button class="sync-btn" id="refreshBtn">🔄 Refresh</button>
+                <button class="logout-btn" id="logoutBtn">🚪 Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <main id="view-root">
+        <div class="skeleton-block">
+            <div class="skeleton skeleton-line" style="width:40%; height:28px;"></div>
+            <div class="skeleton-grid">
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>
+                <div class="skeleton skeleton-card"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Mobile bottom tab bar: same routes as .app-switcher above, shown only
+         under the mobile breakpoint (see theme.css). Field agents mostly use
+         this on a phone, so primary navigation lives within thumb reach. -->
+    <nav class="bottom-tab-bar" id="bottomTabBar">
+        <button class="bottom-tab-btn route-btn" data-route="agent">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            <span>Agent Hub</span>
+        </button>
+        <button class="bottom-tab-btn route-btn" data-route="admin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+            <span>Admin</span>
+        </button>
+        <button class="bottom-tab-btn route-btn" data-route="orders">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 3h6a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M9 11h6M9 15h6M9 19h3"/></svg>
+            <span>Record Order</span>
+        </button>
+    </nav>
+
+    <script src="assets/api.js"></script>
+    <script src="assets/auth.js"></script>
+    <script>
+        const ROUTES = {
+            agent: 'agent',
+            admin: 'admin',
+            orders: 'orders'
+        };
+
+        // Routes not listed here are open to any logged-in role.
+        const ROUTE_ROLES = {
+            admin: 'admin',
+            orders: 'admin'
+        };
+
+        let navToken = 0;
+
+        function currentRouteKey() {
+            const hash = location.hash.replace(/^#\/?/, '').trim();
+            return ROUTES[hash] ? hash : 'agent';
+        }
+
+        function applySwitcherVisibility() {
+            const isAdmin = GK.api.currentRole() === 'admin';
+            document.querySelectorAll('.route-btn').forEach(b => {
+                const requiredRole = ROUTE_ROLES[b.dataset.route];
+                b.style.display = (!requiredRole || isAdmin) ? '' : 'none';
+            });
+        }
+
+        const SKELETON_HTML = `
+            <div class="skeleton-block">
+                <div class="skeleton skeleton-line" style="width:40%; height:28px;"></div>
+                <div class="skeleton-grid">
+                    ${'<div class="skeleton skeleton-card"></div>'.repeat(4)}
+                </div>
+            </div>`;
+
+        async function navigate(routeKey) {
+            if (!GK.auth.guard()) return;
+            if (!ROUTES[routeKey]) routeKey = 'agent';
+
+            applySwitcherVisibility();
+
+            const requiredRole = ROUTE_ROLES[routeKey];
+            if (requiredRole && GK.api.currentRole() !== requiredRole) {
+                location.hash = '#/agent'; // triggers hashchange -> a fresh, authorized navigate()
+                return;
+            }
+
+            document.querySelectorAll('.route-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.route === routeKey);
+            });
+
+            const token = ++navToken;
+            const root = document.getElementById('view-root');
+            root.innerHTML = SKELETON_HTML;
+
+            try {
+                const html = await fetch(`views/${routeKey}.html`).then(r => {
+                    if (!r.ok) throw new Error('View not found');
+                    return r.text();
+                });
+                if (token !== navToken) return;
+                root.innerHTML = html;
+                root.classList.remove('view-fade-in');
+                void root.offsetWidth; // restart the animation on every navigation
+                root.classList.add('view-fade-in');
+
+                await new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = `views/${routeKey}.js`;
+                    s.onload = resolve;
+                    s.onerror = () => reject(new Error('Failed to load view script'));
+                    document.body.appendChild(s);
+                });
+                if (token !== navToken) return;
+
+                if (typeof window.GK_viewInit === 'function') window.GK_viewInit();
+            } catch (err) {
+                console.error(err);
+                if (token === navToken) {
+                    root.innerHTML = '<div class="view-loading">⚠️ Failed to load this view. Please refresh.</div>';
+                }
+            }
+        }
+
+        window.addEventListener('hashchange', () => navigate(currentRouteKey()));
+
+        document.getElementById('brandHome').addEventListener('click', () => { location.hash = '#/agent'; });
+        document.querySelectorAll('.route-btn').forEach(btn => {
+            btn.addEventListener('click', () => { location.hash = '#/' + btn.dataset.route; });
+        });
+        document.getElementById('logoutBtn').addEventListener('click', () => GK.auth.logout());
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            if (typeof window.GK_viewRefresh === 'function') window.GK_viewRefresh();
+        });
+
+        document.addEventListener('gk:login', () => navigate(currentRouteKey()));
+
+        GK.auth.init();
+        if (GK.auth.guard()) navigate(currentRouteKey());
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+        }
+    </script>
+</body>
+</html>
