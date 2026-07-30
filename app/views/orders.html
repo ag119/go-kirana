@@ -11,6 +11,11 @@
                 </div>
             </div>
 
+            <div id="draftEditBanner" style="display:none; background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:12px 16px; border-radius:var(--radius-md); margin-bottom:20px; font-size:0.85rem; font-weight:700; align-items:center; justify-content:space-between; gap:12px;">
+                <span>✏️ Editing a saved draft — saving again updates it; submitting removes it from drafts.</span>
+                <button style="background:none; border:none; color:#92400e; text-decoration:underline; font-weight:800; cursor:pointer; font-size:0.8rem; white-space:nowrap;" onclick="clearOrderForm()">Cancel / New Order</button>
+            </div>
+
             <datalist id="customerDatalist"></datalist>
 
             <!-- Section 1: Customer & Dates -->
@@ -110,8 +115,51 @@
                 </div>
             </div>
 
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+                <button style="flex:1; min-width:160px; background:white; color:var(--primary-dark); border:2px solid var(--primary); padding:14px; border-radius:30px; font-size:0.95rem; font-weight:800; cursor:pointer;" onclick="saveDraft()">
+                    💾 <span id="saveDraftBtnLabel">Save as Draft</span>
+                </button>
+                <button style="min-width:140px; background:var(--bg); color:var(--text-muted); border:1px solid var(--border); padding:14px; border-radius:30px; font-size:0.95rem; font-weight:800; cursor:pointer;" onclick="clearOrderForm()">
+                    🆕 New Order
+                </button>
+            </div>
+
             <button class="btn-submit" id="btnSubmitSheetOrder" onclick="submitOrderToGoogleSheet()">
                 🚀 Submit Order to Google Sheet
             </button>
+        </div>
+    </div>
+
+    <!-- Local-only saved drafts: never sent to the server until explicitly submitted. -->
+    <div class="container" style="margin-top:0;">
+        <div class="workspace-card">
+            <div class="section-header">
+                <div>
+                    <h2 style="font-size:1.15rem; font-weight:800;">📋 Saved Drafts <span id="draftCountBadge" style="font-size:0.85rem; color:var(--text-muted); font-weight:700;">(0)</span></h2>
+                    <p style="font-size:0.8rem; color:var(--text-muted);">Stored only on this device/browser — never synced. Export a PDF backup before clearing browser data.</p>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button style="background:#e0e7ff; color:#3730a3; border:none; padding:10px 16px; border-radius:20px; font-weight:700; font-size:0.85rem; cursor:pointer;" onclick="openRequirementModal()">📦 Item-wise Requirement</button>
+                    <button style="background:var(--primary-dark); color:white; border:none; padding:10px 16px; border-radius:20px; font-weight:700; font-size:0.85rem; cursor:pointer;" onclick="exportDraftsReport()">🖨️ Export / Print PDF</button>
+                </div>
+            </div>
+
+            <div id="draftsListContainer">
+                <p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No drafts saved yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item-wise requirement modal -->
+    <div class="modal-overlay" id="requirementModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2>📦 Item-wise Requirement</h2>
+                    <p>Total quantity needed across all saved drafts</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('requirementModal')">✕</button>
+            </div>
+            <div id="requirementModalBody"></div>
         </div>
     </div>

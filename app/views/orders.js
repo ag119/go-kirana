@@ -8,6 +8,12 @@
     let rawProducts = [];
     let sheetOrderCart = [];
 
+    // Local-only draft orders — never sent to the server, live entirely in
+    // localStorage on this device/browser.
+    const DRAFTS_STORAGE_KEY = 'gk_order_drafts';
+    let drafts = [];
+    let activeDraftId = null;
+
     // --- RELEVANCE SEARCH & FUZZY MATCHING (identical to Agent Hub / Admin's
     // product search, so the experience is the same across every view). ---
     function levenshteinDistance(a, b) {
@@ -417,14 +423,12 @@
             await GK.api.createOrder(payload);
             alert(`✅ Order ${autoId} recorded successfully in Google Sheet!`);
 
-            sheetOrderCart = [];
-            document.getElementById('orderCustInput').value = '';
-            document.getElementById('selectedCustId').value = '';
-            document.getElementById('selectedCustName').value = '';
-            document.getElementById('custSelectionStatus').style.display = 'none';
-            document.getElementById('orderDeliveryCharge').value = '0';
-            document.getElementById('orderDamageCost').value = '0';
-            renderSheetOrderTable();
+            if (activeDraftId) {
+                drafts = drafts.filter(d => d.id !== activeDraftId);
+                persistDrafts();
+                renderDraftsList();
+            }
+            clearOrderForm();
 
             fetchLiveData(true);
         } catch (err) {
@@ -436,10 +440,326 @@
         }
     }
 
+    // --- LOCAL-ONLY DRAFT ORDERS -------------------------------------------
+    // Saved to localStorage only — never touch the Apps Script API. Lets an
+    // admin build up several orders before deciding what to actually submit,
+    // and see the combined SKU quantities needed to fulfil all of them.
+
+    function loadDraftsFromStorage() {
+        try {
+            const raw = localStorage.getItem(DRAFTS_STORAGE_KEY);
+            drafts = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(drafts)) drafts = [];
+        } catch (e) {
+            drafts = [];
+        }
+    }
+
+    function persistDrafts() {
+        try {
+            localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+        } catch (e) {
+            alert('⚠️ Could not save draft — your browser storage may be full.');
+        }
+    }
+
+    function setEditingBanner(active) {
+        const banner = document.getElementById('draftEditBanner');
+        if (banner) banner.style.display = active ? 'flex' : 'none';
+    }
+
+    function draftItemsBilledTotal(draft) {
+        const itemsTotal = (draft.items || []).reduce((sum, i) => sum + (i.qty * i.unitPrice), 0);
+        return itemsTotal + (parseFloat(draft.deliveryCharge) || 0);
+    }
+
+    function formatSavedAt(iso) {
+        const d = new Date(iso);
+        if (isNaN(d)) return '—';
+        return d.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function saveDraft() {
+        if (!sheetOrderCart.length) {
+            alert('Add at least one item before saving a draft.');
+            return;
+        }
+
+        const draftData = {
+            custId: document.getElementById('selectedCustId').value,
+            custName: document.getElementById('selectedCustName').value,
+            custInputValue: document.getElementById('orderCustInput').value.trim(),
+            orderDate: document.getElementById('orderDateInput').value,
+            fulfillmentDate: document.getElementById('fulfillmentDateInput').value,
+            deliveryCharge: parseFloat(document.getElementById('orderDeliveryCharge').value) || 0,
+            damageCost: parseFloat(document.getElementById('orderDamageCost').value) || 0,
+            items: sheetOrderCart.map(i => Object.assign({}, i))
+        };
+
+        const existingIdx = activeDraftId ? drafts.findIndex(d => d.id === activeDraftId) : -1;
+        if (existingIdx !== -1) {
+            drafts[existingIdx] = Object.assign({}, drafts[existingIdx], draftData, { savedAt: new Date().toISOString() });
+        } else {
+            activeDraftId = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+            drafts.push(Object.assign({ id: activeDraftId, savedAt: new Date().toISOString() }, draftData));
+        }
+
+        persistDrafts();
+        renderDraftsList();
+        setEditingBanner(true);
+
+        const label = document.getElementById('saveDraftBtnLabel');
+        if (label) {
+            const original = label.innerText;
+            label.innerText = 'Saved!';
+            setTimeout(() => { label.innerText = original; }, 1500);
+        }
+    }
+
+    function loadDraftIntoForm(id) {
+        const draft = drafts.find(d => d.id === id);
+        if (!draft) return;
+
+        activeDraftId = draft.id;
+
+        document.getElementById('orderCustInput').value = draft.custInputValue || '';
+        document.getElementById('selectedCustId').value = draft.custId || '';
+        document.getElementById('selectedCustName').value = draft.custName || '';
+        const statusDiv = document.getElementById('custSelectionStatus');
+        if (draft.custId && draft.custName) {
+            statusDiv.style.display = 'block';
+            statusDiv.innerText = `✔ Selected: ${draft.custName} (ID: ${draft.custId})`;
+        } else {
+            statusDiv.style.display = 'none';
+        }
+
+        document.getElementById('orderDateInput').value = draft.orderDate || '';
+        document.getElementById('fulfillmentDateInput').value = draft.fulfillmentDate || '';
+        document.getElementById('orderDeliveryCharge').value = draft.deliveryCharge || 0;
+        document.getElementById('orderDamageCost').value = draft.damageCost || 0;
+
+        sheetOrderCart = (draft.items || []).map(i => Object.assign({}, i));
+        renderSheetOrderTable();
+        recalculateAutoOrderId();
+        setEditingBanner(true);
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function deleteDraft(id) {
+        if (!confirm('Delete this draft? This cannot be undone.')) return;
+
+        drafts = drafts.filter(d => d.id !== id);
+        persistDrafts();
+        renderDraftsList();
+
+        if (activeDraftId === id) {
+            activeDraftId = null;
+            setEditingBanner(false);
+        }
+    }
+
+    function clearOrderForm() {
+        activeDraftId = null;
+        setEditingBanner(false);
+
+        sheetOrderCart = [];
+        document.getElementById('orderCustInput').value = '';
+        document.getElementById('selectedCustId').value = '';
+        document.getElementById('selectedCustName').value = '';
+        document.getElementById('custSelectionStatus').style.display = 'none';
+        document.getElementById('orderDeliveryCharge').value = '0';
+        document.getElementById('orderDamageCost').value = '0';
+        renderSheetOrderTable();
+    }
+
+    function renderDraftsList() {
+        const container = document.getElementById('draftsListContainer');
+        const badge = document.getElementById('draftCountBadge');
+        if (badge) badge.innerText = `(${drafts.length})`;
+        if (!container) return;
+
+        if (!drafts.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No drafts saved yet.</p>';
+            return;
+        }
+
+        container.innerHTML = drafts.slice().sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || '')).map(d => {
+            const total = draftItemsBilledTotal(d);
+            const custLabel = d.custName
+                ? d.custName
+                : (d.custInputValue ? `⚠️ "${d.custInputValue}" (not matched to a customer)` : '⚠️ No customer selected');
+
+            return `
+            <div class="order-card">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+                    <div>
+                        <div style="font-weight:800; font-size:0.95rem;">${custLabel}</div>
+                        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">📅 ${d.orderDate || '—'} • ${(d.items||[]).length} item(s) • Saved ${formatSavedAt(d.savedAt)}</div>
+                        <div style="font-size:0.85rem; font-weight:700; color:var(--primary-dark); margin-top:6px;">Est. Total: ₹${total.toLocaleString('en-IN', {maximumFractionDigits:2})}</div>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-shrink:0;">
+                        <button style="background:var(--primary); color:white; border:none; padding:8px 14px; border-radius:16px; font-weight:700; font-size:0.8rem; cursor:pointer;" onclick="loadDraftIntoForm('${d.id}')">✏️ Edit</button>
+                        <button style="background:#fee2e2; color:#b91c1c; border:none; padding:8px 14px; border-radius:16px; font-weight:700; font-size:0.8rem; cursor:pointer;" onclick="deleteDraft('${d.id}')">🗑️ Delete</button>
+                    </div>
+                </div>
+            </div>
+            `;
+        }).join('');
+    }
+
+    function computeItemwiseRequirement() {
+        const map = {};
+        drafts.forEach(draft => {
+            (draft.items || []).forEach(item => {
+                const hasSku = item.sku && item.sku !== 'CUSTOM';
+                const key = hasSku ? ('sku:' + item.sku) : ('name:' + item.name.toLowerCase());
+                if (!map[key]) {
+                    map[key] = { sku: hasSku ? item.sku : '', name: item.name, qty: 0, draftIds: new Set() };
+                }
+                map[key].qty += item.qty;
+                map[key].draftIds.add(draft.id);
+            });
+        });
+
+        return Object.values(map)
+            .map(r => ({ sku: r.sku, name: r.name, qty: r.qty, orderCount: r.draftIds.size }))
+            .sort((a, b) => b.qty - a.qty);
+    }
+
+    function requirementTableHTML(rows) {
+        if (!rows.length) {
+            return '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px 0;">No saved drafts yet — save a draft first to see aggregated quantities.</p>';
+        }
+        return `
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
+                <th style="padding:8px;">SKU</th><th style="padding:8px;">Item</th><th style="padding:8px; text-align:center;">In Drafts</th><th style="padding:8px; text-align:right;">Total Qty Needed</th>
+            </tr></thead>
+            <tbody>
+            ${rows.map(r => `
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:8px;"><code style="font-size:0.75rem; color:var(--text-muted);">${r.sku || 'N/A'}</code></td>
+                    <td style="padding:8px; font-weight:700;">${r.name}</td>
+                    <td style="padding:8px; text-align:center;">${r.orderCount}</td>
+                    <td style="padding:8px; text-align:right; font-weight:800; color:var(--primary-dark);">${r.qty}</td>
+                </tr>
+            `).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    function openRequirementModal() {
+        const body = document.getElementById('requirementModalBody');
+        body.innerHTML = requirementTableHTML(computeItemwiseRequirement());
+        document.getElementById('requirementModal').classList.add('active');
+    }
+
+    function closeModal(modalId) {
+        document.getElementById(modalId).classList.remove('active');
+    }
+
+    function buildDraftsReportHTML() {
+        const now = new Date().toLocaleString('en-IN');
+        const requirement = computeItemwiseRequirement();
+
+        const draftSections = drafts.map((d, idx) => {
+            const total = draftItemsBilledTotal(d);
+            const custLabel = d.custName || (d.custInputValue ? `${d.custInputValue} (unmatched)` : 'No customer selected');
+            const itemsRows = (d.items || []).map(i => `
+                <tr>
+                    <td>${i.sku || 'N/A'}</td>
+                    <td>${i.name}</td>
+                    <td style="text-align:center;">${i.qty}</td>
+                    <td style="text-align:right;">₹${(i.unitPrice||0).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                    <td style="text-align:right;">₹${((i.qty||0)*(i.unitPrice||0)).toLocaleString('en-IN',{maximumFractionDigits:2})}</td>
+                </tr>
+            `).join('');
+
+            return `
+            <div class="draft-section">
+                <h3>Draft ${idx + 1}: ${custLabel}</h3>
+                <div class="meta">Order Date: ${d.orderDate || '—'} &nbsp;•&nbsp; Fulfilment: ${d.fulfillmentDate || '—'} &nbsp;•&nbsp; Saved: ${formatSavedAt(d.savedAt)}</div>
+                <table>
+                    <thead><tr><th>SKU</th><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+                    <tbody>${itemsRows}</tbody>
+                </table>
+                <div class="draft-total">Delivery: ₹${(d.deliveryCharge||0).toLocaleString('en-IN',{maximumFractionDigits:2})} &nbsp;•&nbsp; Est. Total: ₹${total.toLocaleString('en-IN',{maximumFractionDigits:2})}</div>
+            </div>
+            `;
+        }).join('<hr class="section-divider">');
+
+        const requirementRows = requirement.map(r => `
+            <tr>
+                <td>${r.sku || 'N/A'}</td>
+                <td>${r.name}</td>
+                <td style="text-align:center;">${r.orderCount}</td>
+                <td style="text-align:right; font-weight:700;">${r.qty}</td>
+            </tr>
+        `).join('');
+
+        return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Go-Kirana — Draft Orders Report</title>
+<style>
+    body { font-family: -apple-system, Arial, sans-serif; color:#0f172a; padding: 24px; max-width: 820px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin-bottom: 2px; }
+    .generated { color:#64748b; font-size:0.8rem; margin-bottom: 24px; }
+    h2 { font-size: 1.1rem; margin-top: 32px; border-bottom: 2px solid #10b981; padding-bottom: 6px; }
+    h3 { font-size: 1rem; margin-bottom: 2px; }
+    .meta { color:#64748b; font-size:0.8rem; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 6px; }
+    th { text-align:left; background:#f1f5f9; padding: 6px 8px; font-size: 0.75rem; text-transform:uppercase; color:#64748b; }
+    td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+    .draft-total { text-align:right; font-weight: 700; font-size: 0.85rem; margin-bottom: 4px; }
+    .section-divider { border:none; border-top: 1px dashed #cbd5e1; margin: 20px 0; }
+    .no-print { margin-top: 24px; }
+    @media print { .no-print { display:none; } }
+</style>
+</head>
+<body>
+    <h1>🏪 Go-Kirana — Draft Orders Report</h1>
+    <div class="generated">Generated ${now} &nbsp;•&nbsp; ${drafts.length} draft order(s)</div>
+
+    ${drafts.length ? draftSections : '<p>No saved drafts.</p>'}
+
+    <h2>📦 Total Item-wise Requirement</h2>
+    <table>
+        <thead><tr><th>SKU</th><th>Item</th><th>In Drafts</th><th>Total Qty</th></tr></thead>
+        <tbody>${requirementRows || '<tr><td colspan="4">No items.</td></tr>'}</tbody>
+    </table>
+
+    <div class="no-print">
+        <button onclick="window.print()" style="background:#10b981;color:white;border:none;padding:10px 18px;border-radius:20px;font-weight:700;cursor:pointer;">🖨️ Print / Save as PDF</button>
+    </div>
+</body>
+</html>`;
+    }
+
+    function exportDraftsReport() {
+        if (!drafts.length) {
+            alert('No saved drafts to export yet.');
+            return;
+        }
+        const html = buildDraftsReportHTML();
+        const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+        const win = window.open(blobUrl, '_blank');
+        if (!win) {
+            alert('⚠️ Please allow popups to export the report.');
+            return;
+        }
+        // Give the new tab time to actually load the blob before revoking it.
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+    }
+
     function initView(force) {
         const today = new Date().toISOString().substring(0, 10);
         document.getElementById('orderDateInput').value = today;
         document.getElementById('fulfillmentDateInput').value = today;
+        loadDraftsFromStorage();
+        renderDraftsList();
         fetchLiveData(force);
     }
 
@@ -455,7 +775,14 @@
         updateSheetOrderItemCostPrice,
         removeSheetOrderItem,
         renderSheetOrderSummary,
-        submitOrderToGoogleSheet
+        submitOrderToGoogleSheet,
+        saveDraft,
+        loadDraftIntoForm,
+        deleteDraft,
+        clearOrderForm,
+        openRequirementModal,
+        closeModal,
+        exportDraftsReport
     });
 
     // The shell calls GK_viewInit itself right after this script loads —
