@@ -379,6 +379,26 @@
         renderPriceList(scoredProducts);
     }
 
+    // Double-tap/double-click a price card to reveal cost price + margin —
+    // a quick "what's my real margin here" check without opening the sheet.
+    // Native dblclick is unreliable on touch (can conflict with pinch-zoom),
+    // so this does its own tap-timing detection and works for both.
+    let lastPriceTap = { sku: null, time: 0 };
+    function handlePriceCardTap(sku) {
+        const now = Date.now();
+        if (lastPriceTap.sku === sku && (now - lastPriceTap.time) < 350) {
+            toggleCostPrice(sku);
+            lastPriceTap = { sku: null, time: 0 };
+        } else {
+            lastPriceTap = { sku, time: now };
+        }
+    }
+
+    function toggleCostPrice(sku) {
+        const row = document.getElementById(`cost-${sku}`);
+        if (row) row.style.display = row.style.display === 'none' ? 'block' : 'none';
+    }
+
     function renderPriceList(prods) {
         const container = document.getElementById('priceListCardsContainer');
         document.getElementById('priceItemCount').innerText = `${prods.length} Items`;
@@ -389,13 +409,20 @@
         }
 
         container.innerHTML = prods.map(p => {
-            const name = p['Item Name'] || p['Standard Name'] || p['SKU'] || '';
-            const price = p['Price per Unit'] || '0';
+            const sku = (p['SKU'] || '').trim();
+            const name = p['Item Name'] || p['Standard Name'] || sku || '';
+            const price = parseFloat(p['Price per Unit'] || 0);
+            const costPrice = (sku && productMapBySKU[sku]) ? productMapBySKU[sku].costPrice : 0;
+            const marginAmt = price - costPrice;
+            const marginPct = price > 0 ? ((marginAmt / price) * 100).toFixed(1) : '0.0';
 
             return `
-            <div class="price-card">
+            <div class="price-card" onclick="handlePriceCardTap('${sku}')" style="cursor:pointer;">
                 <div class="price-card-info">
                     <div class="price-card-name">${name}</div>
+                    <div id="cost-${sku}" style="display:none; font-size:0.78rem; color:var(--text-muted); margin-top:4px;">
+                        Cost: ₹${costPrice.toLocaleString('en-IN', {maximumFractionDigits:2})} &nbsp;•&nbsp; Margin: ₹${marginAmt.toLocaleString('en-IN', {maximumFractionDigits:2})} (${marginPct}%)
+                    </div>
                 </div>
 
                 <div class="price-card-actions">
@@ -410,7 +437,7 @@
         document.getElementById('modalCustName').innerText = custName;
         document.getElementById('modalCustMeta').innerText = `Customer ID: ${custId}`;
 
-        const custOrders = rawOrders.filter(o => (o['CustomerId'] || '').trim() === custId.trim() || (o['CustomerName']||'').toLowerCase() === custName.toLowerCase());
+        const custOrders = sortOrdersDesc(rawOrders.filter(o => (o['CustomerId'] || '').trim() === custId.trim() || (o['CustomerName']||'').toLowerCase() === custName.toLowerCase()));
         const totalCustOrders = custOrders.length;
 
         const itemStats = {};
@@ -456,7 +483,7 @@
             '<span style="font-size:0.8rem; color:var(--text-muted);">No order history available.</span>';
 
         const body = document.getElementById('modalOrdersBody');
-        body.innerHTML = custOrders.map(o => {
+        body.innerHTML = withMonthDividers(custOrders, o => {
             const orderId = o['Id'] || o['Order ID'];
             const billAmt = parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
             const profitAmt = parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
@@ -469,7 +496,7 @@
                 <div class="order-card-header" onclick="toggleOrderItems('${orderId}')">
                     <div>
                         <div class="order-id">${orderId}</div>
-                        <div class="order-date">📅 ${o['Order Date']} • ${items.length} items</div>
+                        <div class="order-date">📅 ${normalizeSheetDate(o['Order Date'])} • ${items.length} items</div>
                         <div class="profit-badge ${profitAmt >= 0 ? 'profit-pos' : 'profit-neg'}">
                             Profit: ₹${profitAmt.toLocaleString('en-IN', {maximumFractionDigits:2})} (${profitPct}%)
                         </div>
@@ -498,7 +525,7 @@
                 </div>
             </div>
             `;
-        }).join('');
+        });
 
         document.getElementById('detailsModal').classList.add('active');
     }
@@ -772,20 +799,289 @@
 
     function renderOrdersStream(orders) {
         const stream = document.getElementById('ordersListStream');
-        stream.innerHTML = orders.map(o => `
+        const sorted = sortOrdersDesc(orders);
+        stream.innerHTML = withMonthDividers(sorted, o => {
+            const orderId = o['Id'] || o['Order ID'] || '';
+            return `
             <div class="order-card">
                 <div class="order-card-header">
                     <div>
-                        <div class="order-id">${o['Id'] || o['Order ID']}</div>
-                        <div class="order-date">👤 <strong>${o['CustomerName']||'Customer'}</strong> • 📅 ${o['Order Date']}</div>
+                        <div class="order-id">${orderId}</div>
+                        <div class="order-date">👤 <strong>${o['CustomerName']||'Customer'}</strong> • 📅 ${normalizeSheetDate(o['Order Date'])}</div>
                     </div>
                     <div style="text-align:right;">
                         <div style="font-weight:800; font-size:1.05rem;">₹${parseFloat(String(o['Bill Amout']||o['Bill Amount']||0).replace(/[^0-9.-]+/g,"")).toLocaleString('en-IN', {maximumFractionDigits:2})}</div>
                         <span class="profit-badge profit-pos">Profit: ₹${(parseFloat(o['Profit/Loss']) || 0).toLocaleString('en-IN', {maximumFractionDigits:2})}</span>
                     </div>
                 </div>
+                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right;">
+                    <button class="btn-analytics" onclick="viewOrderBill('${orderId}')">🧾 View Bill</button>
+                </div>
             </div>
-        `).join('');
+            `;
+        });
+    }
+
+    // --- CUSTOMER BILL / RECEIPT -------------------------------------------
+    // Opens a standalone, print-ready bill in a new tab (same Blob-URL
+    // pattern as orders.js's draft report) — this doubles as "view" (it's a
+    // full clean page) and "download PDF" (the tab has its own print
+    // button; picking "Save as PDF" as the destination is the export).
+    // No GST/tax fields anywhere — the business isn't GST-registered.
+
+    // Google Sheets stores Order Date as a real Date cell at local (IST)
+    // midnight. Apps Script serializes that to JSON as a UTC ISO timestamp
+    // (Date.toJSON()), and since IST is UTC+5:30, that shifts the calendar
+    // date back by one day — "2026-07-31" becomes "2026-07-30T18:30:00.000Z".
+    // Shifting by the IST offset before reading off the date recovers the
+    // date the order was actually placed on.
+    function normalizeSheetDate(raw) {
+        const s = String(raw || '').trim();
+        if (!s) return '';
+        if (!s.includes('T')) return s.substring(0, 10); // already a plain "YYYY-MM-DD" string
+        const d = new Date(s);
+        if (isNaN(d)) return s.substring(0, 10);
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        return new Date(d.getTime() + IST_OFFSET_MS).toISOString().substring(0, 10);
+    }
+
+    // Newest first; same-day orders tie-broken by Order ID (higher sequence
+    // = placed later that day) so the order is stable and predictable.
+    function sortOrdersDesc(orders) {
+        return orders.slice().sort((a, b) => {
+            const da = normalizeSheetDate(a['Order Date']);
+            const db = normalizeSheetDate(b['Order Date']);
+            if (da !== db) return db.localeCompare(da);
+            const ida = String(a['Id'] || a['Order ID'] || '');
+            const idb = String(b['Id'] || b['Order ID'] || '');
+            return idb.localeCompare(ida);
+        });
+    }
+
+    function monthLabel(dateStr) {
+        if (!dateStr) return 'Unknown Date';
+        const [y, m] = dateStr.split('-');
+        return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    }
+
+    // Renders a list of order cards (already-built HTML strings, one per
+    // order) with a month-divider inserted wherever the calendar month
+    // changes. Orders must already be sorted (sortOrdersDesc) — this only
+    // groups, it doesn't sort.
+    function withMonthDividers(orders, cardHtmlFn) {
+        let lastMonth = null;
+        const parts = [];
+        orders.forEach(o => {
+            const dateStr = normalizeSheetDate(o['Order Date']);
+            const month = dateStr ? dateStr.substring(0, 7) : '';
+            if (month !== lastMonth) {
+                parts.push(`<div class="month-divider">${monthLabel(dateStr)}</div>`);
+                lastMonth = month;
+            }
+            parts.push(cardHtmlFn(o));
+        });
+        return parts.join('');
+    }
+
+    function billOrderById(orderId) {
+        return rawOrders.find(o => String(o['Id'] || o['Order ID'] || '').trim() === orderId);
+    }
+
+    function billItemsForOrder(orderId) {
+        return rawOrderItems.filter(i => String(i['Order ID'] || i['Id'] || '').trim() === orderId);
+    }
+
+    function billCustomerContact(order) {
+        const custId = String(order['CustomerId'] || '').trim();
+        const cust = rawCustomers.find(c => String(c['Id'] || c['ID'] || '').trim() === custId);
+        if (!cust) return '';
+        const mobile = cust['Mobile Number'] || '';
+        return mobile ? `+${cust['Country Code'] || '91'} ${mobile}` : '';
+    }
+
+    function buildBillSection(order, items) {
+        const orderId = order['Id'] || order['Order ID'] || '';
+        const custName = order['CustomerName'] || 'Customer';
+        const custContact = billCustomerContact(order);
+        const dateStr = normalizeSheetDate(order['Order Date']);
+
+        const deliveryCharge = parseFloat(String(order['Delivery Cost'] ?? order['Delivery Charge'] ?? 0).replace(/[^0-9.-]+/g, '')) || 0;
+
+        let itemsSubtotal = 0;
+        const rows = items.map((it, idx) => {
+            const sku = (it['SKU'] || '').trim();
+            const prod = productMapBySKU[sku];
+            const name = prod ? prod.name : (sku || 'Item');
+            const qty = parseInt(it['Quantity']) || 0;
+            const unitPrice = parseFloat(String(it['Unit Price'] || 0).replace(/[^0-9.-]+/g, '')) || 0;
+            const lineTotal = parseFloat(String(it['Calculated Total'] || (qty * unitPrice)).replace(/[^0-9.-]+/g, '')) || (qty * unitPrice);
+            itemsSubtotal += lineTotal;
+
+            return `
+            <tr>
+                <td>${idx + 1}</td>
+                <td>${name}</td>
+                <td style="text-align:center;">${qty}</td>
+                <td style="text-align:right;">₹${unitPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                <td style="text-align:right;">₹${lineTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+            </tr>`;
+        }).join('');
+
+        const sheetBillAmount = parseFloat(String(order['Bill Amout'] || order['Bill Amount'] || 0).replace(/[^0-9.-]+/g, ''));
+        const grandTotal = sheetBillAmount || (itemsSubtotal + deliveryCharge);
+
+        const deliveryRow = deliveryCharge > 0
+            ? `<div class="totals-row"><span>Delivery</span><span>₹${deliveryCharge.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>`
+            : `<div class="totals-row"><span>Delivery</span><span><span class="strike">₹50</span> <span class="free-tag">FREE</span></span></div>`;
+
+        return `
+        <div class="bill-page">
+            <div class="bill-card">
+                <div class="bill-header">
+                    <div class="brand-block">
+                        <img class="brand-logo" src="${location.origin}/app/assets/icons/icon-512.png" alt="Go-Kirana">
+                        <div>
+                            <div class="brand-name">Kirana</div>
+                            <div class="brand-tagline">Munafa Aapka, Mehnat Hamari</div>
+                        </div>
+                    </div>
+                    <div class="bill-meta">
+                        <div class="bill-meta-label">Bill</div>
+                        <div class="bill-no">${orderId}</div>
+                        <div class="bill-date">${dateStr}</div>
+                    </div>
+                </div>
+
+                <div class="bill-parties">
+                    <div>
+                        <div class="party-label">Billed To</div>
+                        <div class="party-name">${custName}</div>
+                        ${custContact ? `<div class="party-detail">📱 ${custContact}</div>` : ''}
+                    </div>
+                    <div class="party-right">
+                        <div class="party-label">From</div>
+                        <div class="party-name">Go-Kirana Distribution</div>
+                        <div class="party-detail">📞 +91 7678153075</div>
+                        <div class="party-detail">✉️ gokirana.wholesale@gmail.com</div>
+                    </div>
+                </div>
+
+                <table class="bill-items">
+                    <thead><tr><th>#</th><th>Item</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Rate</th><th style="text-align:right;">Amount</th></tr></thead>
+                    <tbody>${rows || '<tr><td colspan="5" style="text-align:center; color:#94a3b8;">No items on this order.</td></tr>'}</tbody>
+                </table>
+
+                <div class="bill-totals">
+                    <div class="totals-row"><span>Subtotal</span><span>₹${itemsSubtotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>
+                    ${deliveryRow}
+                    <div class="totals-row grand"><span>Grand Total</span><span>₹${grandTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>
+                </div>
+
+                <div class="bill-footer">
+                    <div class="thank-you">🙏 Thank you for shopping with Go-Kirana!</div>
+                    <div class="footer-contact">📞 +91 7678153075 &nbsp;•&nbsp; ✉️ gokirana.wholesale@gmail.com</div>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    function wrapBillDocument(title, sectionsHtml, summaryHtml) {
+        return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${title}</title>
+<style>
+    :root {
+        --navy: #2C3E50;
+        --red: #E53935;
+        --gold: #C9971C;
+        --muted: #64748b;
+        --border: #e2e8f0;
+        --bg: #F4F7F6;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; color: var(--navy); background: var(--bg); margin: 0; padding: 24px; }
+    .toolbar { max-width: 760px; margin: 0 auto 20px auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .toolbar h1 { font-size: 1.1rem; margin: 0; }
+    .toolbar .sub { color: var(--muted); font-size: 0.8rem; }
+    .print-btn { background: var(--red); color: white; border: none; padding: 10px 20px; border-radius: 24px; font-weight: 700; cursor: pointer; font-size: 0.9rem; }
+
+    .bill-page { max-width: 760px; margin: 0 auto 24px auto; page-break-after: always; }
+    .bill-page:last-child { page-break-after: auto; }
+
+    .bill-card { background: white; border-radius: 16px; box-shadow: 0 4px 16px rgba(44,62,80,0.08); padding: 32px; }
+    .bill-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--navy); padding-bottom: 18px; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
+    .brand-block { display: flex; align-items: center; gap: 12px; }
+    .brand-logo { width: 48px; height: 48px; object-fit: contain; border-radius: 8px; }
+    .brand-name { font-size: 1.4rem; font-weight: 800; }
+    .brand-name::before { content: 'Go-'; color: var(--red); }
+    .brand-tagline { font-size: 0.7rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .bill-meta { text-align: right; }
+    .bill-meta-label { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gold); }
+    .bill-no { font-family: monospace; font-weight: 800; font-size: 1rem; }
+    .bill-date { font-size: 0.8rem; color: var(--muted); }
+
+    .bill-parties { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 22px; flex-wrap: wrap; }
+    .party-right { text-align: right; }
+    .party-label { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 4px; }
+    .party-name { font-weight: 800; font-size: 0.95rem; }
+    .party-detail { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+
+    table.bill-items { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 0.85rem; }
+    table.bill-items th { text-align: left; background: var(--bg); padding: 8px 10px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 2px solid var(--border); }
+    table.bill-items td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+
+    .bill-totals { max-width: 280px; margin-left: auto; margin-bottom: 24px; }
+    .totals-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 0.88rem; }
+    .totals-row .strike { text-decoration: line-through; color: var(--muted); margin-right: 6px; }
+    .totals-row .free-tag { color: #15803d; font-weight: 800; }
+    .totals-row.grand { border-top: 2px solid var(--navy); margin-top: 6px; padding-top: 10px; font-size: 1.1rem; font-weight: 800; color: var(--red); }
+
+    .bill-footer { text-align: center; border-top: 1px dashed var(--border); padding-top: 16px; }
+    .thank-you { font-weight: 700; margin-bottom: 4px; }
+    .footer-contact { font-size: 0.78rem; color: var(--muted); }
+
+    .summary-banner { max-width: 760px; margin: 0 auto 20px auto; background: white; border-radius: 12px; padding: 16px 20px; box-shadow: 0 2px 8px rgba(44,62,80,0.06); font-size: 0.9rem; }
+
+    @media print {
+        body { background: white; padding: 0; }
+        .toolbar { display: none; }
+        .bill-card { box-shadow: none; border: 1px solid var(--border); }
+        .summary-banner { box-shadow: none; border: 1px solid var(--border); }
+    }
+</style>
+</head>
+<body>
+    <div class="toolbar">
+        <div>
+            <h1>${title}</h1>
+            <div class="sub">Generated ${new Date().toLocaleString('en-IN')}</div>
+        </div>
+        <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    </div>
+    ${summaryHtml || ''}
+    ${sectionsHtml}
+</body>
+</html>`;
+    }
+
+    function openBillDocument(title, sectionsHtml, summaryHtml) {
+        const html = wrapBillDocument(title, sectionsHtml, summaryHtml);
+        const blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+        const win = window.open(blobUrl, '_blank');
+        if (!win) {
+            alert('⚠️ Please allow popups to view the bill.');
+            return;
+        }
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+    }
+
+    function viewOrderBill(orderId) {
+        const order = billOrderById(orderId);
+        if (!order) { alert('Order not found.'); return; }
+        const items = billItemsForOrder(orderId);
+        openBillDocument(`Go-Kirana — Bill ${orderId}`, buildBillSection(order, items));
     }
 
     function switchTab(tabId) {
@@ -810,6 +1106,7 @@
         filterCustomers,
         filterOrders,
         filterPriceList,
+        handlePriceCardTap,
         handleSearchSuggestInput,
         selectSuggestedProduct,
         adjustBuilderQty,
@@ -823,7 +1120,8 @@
         removeNewOrderCartItem,
         sendNewCustomerOrderToWhatsApp,
         toggleOrderItems,
-        closeModal
+        closeModal,
+        viewOrderBill
     });
 
     // The shell calls GK_viewInit itself right after this script loads —

@@ -11,6 +11,7 @@
             <button class="pill-btn" onclick="switchTab('shopInsightsTab')">🧾 Shop Insights</button>
             <button class="pill-btn" onclick="switchTab('inventoryTab')">🧭 Inventory Guide</button>
             <button class="pill-btn" onclick="switchTab('ordersTab')">📦 All Orders Stream</button>
+            <button class="pill-btn" onclick="switchTab('dayWiseBillsTab')">🖨️ Day-wise Bills</button>
         </div>
 
         <!-- TAB 1: CUSTOMERS RANKED -->
@@ -200,6 +201,23 @@
                 <input type="text" id="orderSearch" placeholder="Search order ID or customer name..." onkeyup="filterOrders()">
             </div>
             <div id="ordersListStream"></div>
+        </div>
+
+        <!-- TAB 7: DAY-WISE BILLS -->
+        <div id="dayWiseBillsTab" class="tab-content">
+            <div style="background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; max-width:520px; margin:0 auto;">
+                <div class="section-title" style="margin-bottom:6px;">🖨️ Generate a Day's Bills</div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">Pick a date to generate every bill recorded for that day in one print-ready document — each bill on its own page, ready to print or save as one combined PDF.</p>
+
+                <label style="display:block; font-size:0.85rem; font-weight:700; margin-bottom:8px;">Order Date</label>
+                <input type="date" id="dayWiseBillsDate" class="input-standard" style="margin-bottom:12px;" onchange="updateDayWiseBillsSummary()">
+
+                <div id="dayWiseBillsSummary" style="font-size:0.85rem; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:20px;">
+                    Loading...
+                </div>
+
+                <button class="btn-submit" onclick="generateDayWiseBills()">🖨️ Generate & Open Bills</button>
+            </div>
         </div>
     </div>
 

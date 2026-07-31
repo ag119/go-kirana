@@ -611,6 +611,19 @@ a { color: inherit; }
 .prob-badge { font-size: 0.7rem; background: #dcfce7; color: #15803d; padding: 2px 6px; border-radius: 10px; font-weight: 800; }
 
 /* ---------- Order Cards ---------- */
+.month-divider {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 10px 2px 8px;
+    margin-top: 4px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 12px;
+}
+.month-divider:first-child { margin-top: 0; }
+
 .order-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px; }
 .order-card-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 .order-id { font-family: monospace; font-weight: 800; font-size: 0.9rem; color: var(--primary-dark); }
