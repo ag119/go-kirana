@@ -197,34 +197,36 @@
         // with their own internally-scrolling box (e.g. Price List) instead
         // get bottom padding sized to the bar (see theme.css).
         (function () {
-            let lastScrollY = window.scrollY;
-            let ticking = false;
-            const MOVE_THRESHOLD = 8; // px of movement before reacting, avoids jitter
+            const bar = document.getElementById('bottomTabBar');
+            if (!bar) return;
+
+            const getY = () => window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+
+            let referenceY = getY();
+            const THRESHOLD = 10; // px of net movement before reacting, avoids jitter
             const TOP_ZONE = 60; // always show near the top of the page
 
-            function updateBottomBarVisibility() {
-                const bar = document.getElementById('bottomTabBar');
-                const currentY = window.scrollY;
-                const delta = currentY - lastScrollY;
+            // referenceY only moves when we actually act on a threshold
+            // crossing — NOT on every scroll event — so a run of small
+            // per-event deltas (common on mobile, which can fire scroll many
+            // times per gesture) still accumulates instead of each one being
+            // compared to the tick immediately before it and never adding up.
+            window.addEventListener('scroll', () => {
+                const y = getY();
 
-                if (bar) {
-                    if (currentY <= TOP_ZONE) {
-                        bar.classList.remove('bottom-tab-bar--hidden');
-                    } else if (delta > MOVE_THRESHOLD) {
-                        bar.classList.add('bottom-tab-bar--hidden');
-                    } else if (delta < -MOVE_THRESHOLD) {
-                        bar.classList.remove('bottom-tab-bar--hidden');
-                    }
+                if (y <= TOP_ZONE) {
+                    bar.classList.remove('bottom-tab-bar--hidden');
+                    referenceY = y;
+                    return;
                 }
 
-                lastScrollY = currentY;
-                ticking = false;
-            }
-
-            window.addEventListener('scroll', () => {
-                if (!ticking) {
-                    requestAnimationFrame(updateBottomBarVisibility);
-                    ticking = true;
+                const diff = y - referenceY;
+                if (diff > THRESHOLD) {
+                    bar.classList.add('bottom-tab-bar--hidden');
+                    referenceY = y;
+                } else if (diff < -THRESHOLD) {
+                    bar.classList.remove('bottom-tab-bar--hidden');
+                    referenceY = y;
                 }
             }, { passive: true });
         })();
