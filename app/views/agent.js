@@ -28,6 +28,7 @@
     // silently update the previously-edited draft instead of creating one.
     let draftOrders = [];
     let activeDraftOrderId = null;
+    let rawInventory = [];
 
     // --- DATA FETCHING (via Apps Script proxy — no sheet ID/gviz here) ---
     // force=true bypasses the shared localStorage cache (see app/assets/api.js) —
@@ -38,12 +39,13 @@
         status.innerHTML = '📡 Syncing real-time store data...';
 
         try {
-            const [cust, ord, items, prods, drafts] = await Promise.all([
+            const [cust, ord, items, prods, drafts, inventory] = await Promise.all([
                 GK.api.getSheet('Customers', { force }),
                 GK.api.getSheet('Orders', { force }),
                 GK.api.getSheet('Order Details', { force }),
                 GK.api.getSheet('Products', { force }),
-                GK.api.getDraftOrders()
+                GK.api.getDraftOrders(),
+                GK.api.getSheet('Inventory', { force })
             ]);
 
             rawCustomers = cust;
@@ -51,6 +53,7 @@
             rawOrderItems = items;
             rawProducts = prods;
             draftOrders = drafts;
+            rawInventory = inventory;
 
             productMapBySKU = {};
             productMapByNameAndPrice = {};
@@ -938,6 +941,64 @@
         await refreshPendingOrders();
     }
 
+    // --- SHOPPING LIST: item-wise totals across every Pending Order,
+    // cross-checked against Inventory stock, so an agent can see at a
+    // glance what still needs to be bought at the market before heading
+    // out — vs what's already covered by what's in stock. ---
+    function computePendingOrdersRequirement() {
+        const map = {};
+        draftOrders.forEach(draft => {
+            let items = [];
+            try { items = JSON.parse(draft['ItemsJson'] || '[]'); } catch (e) { items = []; }
+            items.forEach(item => {
+                const hasSku = !!item.sku;
+                const key = hasSku ? ('sku:' + item.sku) : ('name:' + String(item.name || '').toLowerCase());
+                if (!map[key]) {
+                    map[key] = { sku: hasSku ? item.sku : '', name: item.name || 'Item', qty: 0 };
+                }
+                map[key].qty += (Number(item.qty) || 0);
+            });
+        });
+
+        return Object.values(map).map(r => {
+            const invRow = r.sku ? rawInventory.find(inv => String(inv['SKU'] || '').trim() === r.sku) : null;
+            const inStock = invRow ? (Number(invRow['Stock']) || 0) : null; // null = not tracked in Inventory
+            const toPurchase = inStock !== null ? Math.max(0, r.qty - inStock) : r.qty;
+            return { sku: r.sku, name: r.name, needed: r.qty, inStock: inStock, toPurchase: toPurchase };
+        }).sort((a, b) => b.toPurchase - a.toPurchase);
+    }
+
+    function shoppingListTableHTML(rows) {
+        if (!rows.length) {
+            return '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px 0;">No pending orders yet — nothing to purchase.</p>';
+        }
+        return `
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+            <thead><tr style="text-align:left; color:var(--text-muted); border-bottom:2px solid var(--border);">
+                <th style="padding:8px;">Item</th>
+                <th style="padding:8px; text-align:center;">Needed</th>
+                <th style="padding:8px; text-align:center;">In Inventory</th>
+                <th style="padding:8px; text-align:right;">To Purchase</th>
+            </tr></thead>
+            <tbody>
+            ${rows.map(r => `
+                <tr style="border-bottom:1px solid var(--border); ${r.toPurchase > 0 ? '' : 'opacity:0.6;'}">
+                    <td style="padding:8px; font-weight:700;">${r.name}${r.sku ? `<div style="font-size:0.72rem; color:var(--text-muted); font-family:monospace; font-weight:400;">${r.sku}</div>` : ''}</td>
+                    <td style="padding:8px; text-align:center;">${r.needed}</td>
+                    <td style="padding:8px; text-align:center;">${r.inStock !== null ? r.inStock : '<span style="color:var(--text-muted); font-size:0.78rem;">not tracked</span>'}</td>
+                    <td style="padding:8px; text-align:right; font-weight:800; color:${r.toPurchase > 0 ? '#ef4444' : '#10b981'};">${r.toPurchase > 0 ? r.toPurchase : '✔ In stock'}</td>
+                </tr>
+            `).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    function openShoppingListModal() {
+        const body = document.getElementById('shoppingListModalBody');
+        body.innerHTML = shoppingListTableHTML(computePendingOrdersRequirement());
+        document.getElementById('shoppingListModal').classList.add('active');
+    }
+
     function toggleOrderItems(orderId) {
         const list = document.getElementById(`items-${orderId}`);
         if (list) list.classList.toggle('open');
@@ -1285,6 +1346,7 @@
         updateDraftOrderStatus,
         editPendingOrder,
         deletePendingOrder,
+        openShoppingListModal,
         toggleOrderItems,
         closeModal,
         viewOrderBill

@@ -167,7 +167,22 @@
             <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
                 Orders you've sent to WhatsApp are saved here automatically. You can update their status, edit, or remove your own — only admin can finalize them into a real order.
             </p>
+            <button class="btn-submit" onclick="openShoppingListModal()" style="margin-bottom:16px;">🛒 What to Purchase</button>
             <div id="pendingOrdersList"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: SHOPPING LIST (item-wise totals across all Pending Orders, cross-checked against Inventory stock) -->
+    <div class="modal-overlay" id="shoppingListModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2>🛒 What to Purchase</h2>
+                    <p>Combined quantities across your Pending Orders, checked against current Inventory stock</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('shoppingListModal')">✕</button>
+            </div>
+            <div id="shoppingListModalBody"></div>
         </div>
     </div>
 
