@@ -191,7 +191,11 @@ a { color: inherit; }
         border-top: 1px solid var(--border);
         box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
         padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+        transition: transform 0.25s ease;
     }
+    /* Slid away while actively scrolling down a long list (see app/index.html) so
+       it never sits over the last card; reappears on scroll-up or near the top. */
+    .bottom-tab-bar.bottom-tab-bar--hidden { transform: translateY(100%); }
     .bottom-tab-btn {
         flex: 1;
         display: flex;
@@ -766,6 +770,13 @@ a { color: inherit; }
 
 /* ---------- Price List ---------- */
 .price-cards-list { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow-y: auto; padding-right: 4px; }
+
+@media (max-width: 640px) {
+    /* This list scrolls internally (max-height above), so the page-level
+       scroll-hide on .bottom-tab-bar never engages here — give the list its
+       own trailing space instead so the last card can clear the fixed bar. */
+    .price-cards-list { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
 
 .price-card {
     background: var(--card-bg);

@@ -191,6 +191,44 @@
             }
         }
 
+        // Slide the mobile bottom tab bar out of the way while scrolling down
+        // a long list, so it never sits over the last card; bring it back on
+        // scroll-up or near the top. Only affects window-level scroll — views
+        // with their own internally-scrolling box (e.g. Price List) instead
+        // get bottom padding sized to the bar (see theme.css).
+        (function () {
+            let lastScrollY = window.scrollY;
+            let ticking = false;
+            const MOVE_THRESHOLD = 8; // px of movement before reacting, avoids jitter
+            const TOP_ZONE = 60; // always show near the top of the page
+
+            function updateBottomBarVisibility() {
+                const bar = document.getElementById('bottomTabBar');
+                const currentY = window.scrollY;
+                const delta = currentY - lastScrollY;
+
+                if (bar) {
+                    if (currentY <= TOP_ZONE) {
+                        bar.classList.remove('bottom-tab-bar--hidden');
+                    } else if (delta > MOVE_THRESHOLD) {
+                        bar.classList.add('bottom-tab-bar--hidden');
+                    } else if (delta < -MOVE_THRESHOLD) {
+                        bar.classList.remove('bottom-tab-bar--hidden');
+                    }
+                }
+
+                lastScrollY = currentY;
+                ticking = false;
+            }
+
+            window.addEventListener('scroll', () => {
+                if (!ticking) {
+                    requestAnimationFrame(updateBottomBarVisibility);
+                    ticking = true;
+                }
+            }, { passive: true });
+        })();
+
         window.addEventListener('hashchange', () => navigate(currentRouteKey()));
 
         document.getElementById('brandHome').addEventListener('click', () => { location.hash = '#/agent'; });
