@@ -288,6 +288,47 @@ function handleCreateOrder_(body) {
   return { status: 'success', orderId: body.orderId };
 }
 
+const INVENTORY_SHEET = 'Inventory';
+
+// Reduces Inventory.Stock for each order item whose SKU matches a row in
+// the Inventory sheet, by that item's quantity — called after an order has
+// been successfully written (see the doPost 'createOrder' branch and
+// handleSubmitDraftOrder_ below), never from inside another withLock_
+// section (this one takes its own lock; Apps Script script locks are not
+// guaranteed reentrant within a single execution, so nesting is avoided by
+// construction rather than assumed safe).
+//
+// Items with no SKU (custom/off-catalog) or no matching Inventory row are
+// silently skipped — not every item is necessarily stocked there. Stock is
+// allowed to go negative on purpose: an oversold item should show up as a
+// visible negative rather than being silently clamped at 0.
+function decrementInventoryStock_(items) {
+  if (!items || !items.length) return;
+
+  withLock_(() => {
+    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(INVENTORY_SHEET);
+    if (!sheet) return;
+
+    const lastCol = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+    const stockColIdx = headers.findIndex(h => normalizeHeader_(h) === normalizeHeader_('Stock'));
+    if (stockColIdx === -1) return;
+
+    items.forEach(item => {
+      const sku = String(item.sku || '').trim();
+      if (!sku || sku === 'CUSTOM') return;
+      const qty = Number(item.quantity) || 0;
+      if (!qty) return;
+
+      const rowIdx = findRowIndexByValue_(sheet, 'SKU', sku);
+      if (rowIdx === -1) return;
+
+      const cell = sheet.getRange(rowIdx, stockColIdx + 1);
+      cell.setValue((Number(cell.getValue()) || 0) - qty);
+    });
+  });
+}
+
 /* ---------------------------------------------------------------------
  * Draft Orders + Audit Log
  *
@@ -435,17 +476,26 @@ function handleDeleteDraftOrder_(session, body) {
 function handleSubmitDraftOrder_(session, body) {
   if (session.role !== 'admin') return { status: 'error', message: 'Only admin can finalize orders.' };
 
-  return withLock_(() => {
+  const result = withLock_(() => {
     const existing = getDraftOrderById_(body.id);
     if (!existing) return { status: 'error', message: 'Draft order not found. It may have already been submitted or deleted by someone else.' };
 
-    const result = handleCreateOrder_(body);
-    if (result.status !== 'success') return result;
+    const res = handleCreateOrder_(body);
+    if (res.status !== 'success') return res;
 
     deleteRowByHeaders_(DRAFT_ORDERS_SHEET, 'Id', body.id);
     logAudit_(session, 'submit', body.id, `Finalized as Order ${body.orderId}`);
-    return result;
+    return res;
   });
+
+  // Outside the lock above (that one guards the Draft Orders row;
+  // decrementInventoryStock_ takes its own lock for the Inventory sheet —
+  // see the comment on that function for why these are never nested).
+  if (result.status === 'success') {
+    decrementInventoryStock_(body.items || []);
+  }
+
+  return result;
 }
 
 function doPost(e) {
@@ -481,7 +531,9 @@ function doPost(e) {
     }
 
     if (action === 'createOrder') {
-      return json_(handleCreateOrder_(body));
+      const result = handleCreateOrder_(body);
+      if (result.status === 'success') decrementInventoryStock_(body.items || []);
+      return json_(result);
     }
 
     if (action === 'getDraftOrders') {
