@@ -48,7 +48,7 @@
                 const sku = (p['SKU'] || '').trim();
                 const name = p['Item Name'] || p['Standard Name'] || sku;
                 const price = parseFloat(p['Price per Unit'] || 0);
-                const costPrice = parseFloat(p['Cost Price'] || p['Cost'] || p['Purchase Price'] || 0);
+                const costPrice = parseFloat(p['Cost Price'] || p['Actual Price'] || p['Cost'] || p['Purchase Price'] || 0);
 
                 if (sku) {
                     productMapBySKU[sku] = { sku, name, price, costPrice };
