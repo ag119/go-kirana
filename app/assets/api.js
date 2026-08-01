@@ -150,6 +150,59 @@
         return data;
     }
 
+    // Draft Orders: frequently-mutated, multi-user data, so this always
+    // hits the network — a stale localStorage cache here would actively
+    // mislead (e.g. admin deletes a draft, agent's view stays wrong for
+    // up to CACHE_TTL_MS).
+    async function getDraftOrders() {
+        const token = requireToken();
+        const data = await call({ action: 'getDraftOrders', token });
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to load draft orders.');
+        }
+        return data.rows || [];
+    }
+
+    async function createDraftOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'createDraftOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to save draft order.');
+        }
+        clearCache();
+        return data;
+    }
+
+    async function updateDraftOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'updateDraftOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to update draft order.');
+        }
+        clearCache();
+        return data;
+    }
+
+    async function deleteDraftOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'deleteDraftOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to delete draft order.');
+        }
+        clearCache();
+        return data;
+    }
+
+    async function submitDraftOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'submitDraftOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to finalize order.');
+        }
+        clearCache(); // Orders/Order Details/Customers stats just changed server-side
+        return data;
+    }
+
     global.GK = global.GK || {};
     global.GK.api = {
         login,
@@ -157,6 +210,11 @@
         getSheet,
         getSheets,
         createOrder,
+        getDraftOrders,
+        createDraftOrder,
+        updateDraftOrder,
+        deleteDraftOrder,
+        submitDraftOrder,
         isLoggedIn: () => !!getSession(),
         currentUser: () => (getSession() || {}).user || null,
         currentRole: () => (getSession() || {}).role || 'agent'

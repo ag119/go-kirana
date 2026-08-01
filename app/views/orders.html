@@ -16,6 +16,11 @@
                 <button style="background:none; border:none; color:#92400e; text-decoration:underline; font-weight:800; cursor:pointer; font-size:0.8rem; white-space:nowrap;" onclick="clearOrderForm()">Cancel / New Order</button>
             </div>
 
+            <div id="finalizeDraftBanner" style="display:none; background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; padding:12px 16px; border-radius:var(--radius-md); margin-bottom:20px; font-size:0.85rem; font-weight:700; align-items:center; justify-content:space-between; gap:12px;">
+                <span id="finalizeDraftBannerText">📤 Finalizing a pending order from an agent — submitting will remove it from Draft Orders.</span>
+                <button style="background:none; border:none; color:#3730a3; text-decoration:underline; font-weight:800; cursor:pointer; font-size:0.8rem; white-space:nowrap;" onclick="cancelFinalizeDraftOrder()">Cancel</button>
+            </div>
+
             <datalist id="customerDatalist"></datalist>
 
             <!-- Section 1: Customer & Dates -->

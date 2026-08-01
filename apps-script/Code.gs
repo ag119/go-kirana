@@ -119,6 +119,95 @@ function appendRowByHeaders_(sheetName, dataObj, aliasMap) {
   sheet.appendRow(row);
 }
 
+// Creates `sheetName` with a header row if it doesn't exist yet. Used by
+// features (Draft Orders, Audit Log) whose sheet tabs are auto-provisioned
+// on first write rather than requiring manual spreadsheet setup.
+function ensureSheetExists_(name, headers) {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  return sheet;
+}
+
+// 1-indexed row number of the first row whose `columnName` cell matches
+// `value` (string-compared), or -1 if not found / column missing.
+function findRowIndexByValue_(sheet, columnName, value) {
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const colIdx = headers.findIndex(h => normalizeHeader_(h) === normalizeHeader_(columnName));
+  if (colIdx === -1) return -1;
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+  const colValues = sheet.getRange(2, colIdx + 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < colValues.length; i++) {
+    if (String(colValues[i][0]) === String(value)) return i + 2; // +1 for header row, +1 for 0-index
+  }
+  return -1;
+}
+
+// Updates the row where `matchColumn` === `matchValue`, read-merge-write:
+// only columns whose alias key is present in `dataObj` (checked via
+// hasOwnProperty, so an explicit '' is distinguishable from "not
+// provided") are overwritten — every other column keeps its current
+// value. Unlike appendRowByHeaders_, "key absent" here must NOT mean
+// "blank it out", since this is a partial update, not a fresh append.
+// Returns true if a row was found and updated, false otherwise.
+function updateRowByHeaders_(sheetName, matchColumn, matchValue, dataObj, aliasMap) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheetName);
+  if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
+
+  const rowIdx = findRowIndexByValue_(sheet, matchColumn, matchValue);
+  if (rowIdx === -1) return false;
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const currentValues = sheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
+
+  const newRow = headers.map((header, i) => {
+    const normalized = normalizeHeader_(header);
+    for (const key in aliasMap) {
+      const aliases = aliasMap[key];
+      if (aliases.some(a => normalizeHeader_(a) === normalized)) {
+        return dataObj.hasOwnProperty(key) ? dataObj[key] : currentValues[i];
+      }
+    }
+    return currentValues[i];
+  });
+
+  sheet.getRange(rowIdx, 1, 1, lastCol).setValues([newRow]);
+  return true;
+}
+
+// Deletes the row where `matchColumn` === `matchValue`. Returns true if a
+// row was found and deleted, false otherwise.
+function deleteRowByHeaders_(sheetName, matchColumn, matchValue) {
+  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheetName);
+  if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
+
+  const rowIdx = findRowIndexByValue_(sheet, matchColumn, matchValue);
+  if (rowIdx === -1) return false;
+
+  sheet.deleteRow(rowIdx);
+  return true;
+}
+
+// Apps Script does not serialize concurrent doPost executions, so any
+// find-row-then-mutate sequence is a TOCTOU risk once multiple staff can
+// write concurrently. Wrap every Draft Orders mutation in this.
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ---------------------------------------------------------------------
  * Actions
  * ------------------------------------------------------------------- */
@@ -199,6 +288,166 @@ function handleCreateOrder_(body) {
   return { status: 'success', orderId: body.orderId };
 }
 
+/* ---------------------------------------------------------------------
+ * Draft Orders + Audit Log
+ *
+ * Agent Hub's "Take Order" / "New Order" flows persist here (in addition
+ * to opening WhatsApp, unchanged) so requests are visible in-app instead
+ * of living only in a WhatsApp thread. Agents see/manage only their own
+ * rows (server-filtered — never trust the client for this); admin sees
+ * and manages all of them, and is the only role allowed to finalize one
+ * into a real Order (handleCreateOrder_) via submitDraftOrder.
+ * ------------------------------------------------------------------- */
+
+const DRAFT_ORDERS_SHEET = 'Draft Orders';
+const DRAFT_ORDERS_HEADERS = ['Id', 'Status', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt', 'CustomerId', 'CustomerName', 'CustomerMobile', 'ItemsJson', 'Notes'];
+const DRAFT_ORDER_HEADER_ALIASES = {
+  id: ['Id'],
+  status: ['Status'],
+  createdBy: ['CreatedBy'],
+  createdAt: ['CreatedAt'],
+  updatedBy: ['UpdatedBy'],
+  updatedAt: ['UpdatedAt'],
+  customerId: ['CustomerId'],
+  customerName: ['CustomerName'],
+  customerMobile: ['CustomerMobile'],
+  itemsJson: ['ItemsJson'],
+  notes: ['Notes']
+};
+const DRAFT_ORDER_STATUSES = ['Pending', 'Confirmed', 'On Hold'];
+
+const AUDIT_LOG_SHEET = 'Audit Log';
+const AUDIT_LOG_HEADERS = ['Timestamp', 'Username', 'Role', 'Action', 'DraftOrderId', 'Details'];
+const AUDIT_LOG_HEADER_ALIASES = {
+  timestamp: ['Timestamp'],
+  username: ['Username'],
+  role: ['Role'],
+  action: ['Action'],
+  draftOrderId: ['DraftOrderId'],
+  details: ['Details']
+};
+
+// Deliberately not shaped like a real Order ID (see ORDER_HEADER_ALIASES)
+// so the two are never visually confused, and this never needs the
+// scan-and-increment collision handling real Order IDs use.
+function generateDraftOrderId_() {
+  return 'PO' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function logAudit_(session, action, draftOrderId, details) {
+  ensureSheetExists_(AUDIT_LOG_SHEET, AUDIT_LOG_HEADERS);
+  appendRowByHeaders_(AUDIT_LOG_SHEET, {
+    timestamp: new Date(),
+    username: session.u,
+    role: session.role,
+    action: action,
+    draftOrderId: draftOrderId || '',
+    details: details || ''
+  }, AUDIT_LOG_HEADER_ALIASES);
+}
+
+function getDraftOrderById_(id) {
+  const rows = sheetToRows_(DRAFT_ORDERS_SHEET);
+  return rows.find(r => String(r['Id']) === String(id)) || null;
+}
+
+function isOwnerOrAdmin_(session, row) {
+  if (session.role === 'admin') return true;
+  return String(row['CreatedBy'] || '').trim().toLowerCase() === String(session.u || '').trim().toLowerCase();
+}
+
+function handleGetDraftOrders_(session) {
+  ensureSheetExists_(DRAFT_ORDERS_SHEET, DRAFT_ORDERS_HEADERS);
+  let rows = sheetToRows_(DRAFT_ORDERS_SHEET);
+  if (session.role !== 'admin') {
+    const u = String(session.u || '').trim().toLowerCase();
+    rows = rows.filter(r => String(r['CreatedBy'] || '').trim().toLowerCase() === u);
+  }
+  return { status: 'success', rows: rows };
+}
+
+function handleCreateDraftOrder_(session, body) {
+  return withLock_(() => {
+    ensureSheetExists_(DRAFT_ORDERS_SHEET, DRAFT_ORDERS_HEADERS);
+    const items = Array.isArray(body.items) ? body.items : [];
+    const id = generateDraftOrderId_();
+    const now = new Date();
+    appendRowByHeaders_(DRAFT_ORDERS_SHEET, {
+      id: id,
+      status: 'Pending',
+      createdBy: session.u,
+      createdAt: now,
+      updatedBy: session.u,
+      updatedAt: now,
+      customerId: body.customerId || '',
+      customerName: body.customerName || '',
+      customerMobile: body.customerMobile || '',
+      itemsJson: JSON.stringify(items),
+      notes: body.notes || ''
+    }, DRAFT_ORDER_HEADER_ALIASES);
+    logAudit_(session, 'create', id, `Created draft order for ${body.customerName || ''}`);
+    return { status: 'success', id: id };
+  });
+}
+
+function handleUpdateDraftOrder_(session, body) {
+  return withLock_(() => {
+    const existing = getDraftOrderById_(body.id);
+    if (!existing) return { status: 'error', message: 'Draft order not found. It may have already been submitted or deleted.' };
+    if (!isOwnerOrAdmin_(session, existing)) return { status: 'error', message: 'You can only edit your own orders.' };
+
+    const dataObj = { updatedBy: session.u, updatedAt: new Date() };
+    if (body.hasOwnProperty('status')) {
+      if (DRAFT_ORDER_STATUSES.indexOf(body.status) === -1) return { status: 'error', message: 'Invalid status.' };
+      dataObj.status = body.status;
+    }
+    if (body.hasOwnProperty('items')) dataObj.itemsJson = JSON.stringify(Array.isArray(body.items) ? body.items : []);
+    if (body.hasOwnProperty('customerName')) dataObj.customerName = body.customerName;
+    if (body.hasOwnProperty('customerMobile')) dataObj.customerMobile = body.customerMobile;
+    if (body.hasOwnProperty('customerId')) dataObj.customerId = body.customerId;
+    if (body.hasOwnProperty('notes')) dataObj.notes = body.notes;
+
+    updateRowByHeaders_(DRAFT_ORDERS_SHEET, 'Id', body.id, dataObj, DRAFT_ORDER_HEADER_ALIASES);
+    const changed = Object.keys(dataObj).filter(k => k !== 'updatedBy' && k !== 'updatedAt');
+    logAudit_(session, 'update', body.id, `Updated: ${changed.join(', ') || '(no fields)'}`);
+    return { status: 'success' };
+  });
+}
+
+function handleDeleteDraftOrder_(session, body) {
+  return withLock_(() => {
+    const existing = getDraftOrderById_(body.id);
+    if (!existing) return { status: 'error', message: 'Draft order not found. It may have already been submitted or deleted.' };
+    if (!isOwnerOrAdmin_(session, existing)) return { status: 'error', message: 'You can only delete your own orders.' };
+
+    deleteRowByHeaders_(DRAFT_ORDERS_SHEET, 'Id', body.id);
+    logAudit_(session, 'delete', body.id, `Deleted draft order for ${existing['CustomerName'] || ''}`);
+    return { status: 'success' };
+  });
+}
+
+// Admin-only: converts a Draft Orders row into a real Order (reusing
+// handleCreateOrder_ unmodified — the extra `id` key is simply ignored by
+// its alias maps) and removes the draft row on success. If
+// handleCreateOrder_ throws partway through, the exception propagates and
+// the draft row is left intact for a retry, rather than being deleted
+// speculatively.
+function handleSubmitDraftOrder_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can finalize orders.' };
+
+  return withLock_(() => {
+    const existing = getDraftOrderById_(body.id);
+    if (!existing) return { status: 'error', message: 'Draft order not found. It may have already been submitted or deleted by someone else.' };
+
+    const result = handleCreateOrder_(body);
+    if (result.status !== 'success') return result;
+
+    deleteRowByHeaders_(DRAFT_ORDERS_SHEET, 'Id', body.id);
+    logAudit_(session, 'submit', body.id, `Finalized as Order ${body.orderId}`);
+    return result;
+  });
+}
+
 function doPost(e) {
   let body;
   try {
@@ -233,6 +482,26 @@ function doPost(e) {
 
     if (action === 'createOrder') {
       return json_(handleCreateOrder_(body));
+    }
+
+    if (action === 'getDraftOrders') {
+      return json_(handleGetDraftOrders_(session));
+    }
+
+    if (action === 'createDraftOrder') {
+      return json_(handleCreateDraftOrder_(session, body));
+    }
+
+    if (action === 'updateDraftOrder') {
+      return json_(handleUpdateDraftOrder_(session, body));
+    }
+
+    if (action === 'deleteDraftOrder') {
+      return json_(handleDeleteDraftOrder_(session, body));
+    }
+
+    if (action === 'submitDraftOrder') {
+      return json_(handleSubmitDraftOrder_(session, body));
     }
 
     return json_({ status: 'error', message: 'Unknown action.' });

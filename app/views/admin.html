@@ -7,11 +7,13 @@
             <button class="pill-btn" onclick="switchTab('followupTab')">🚨 Follow-up Alerts</button>
             <button class="pill-btn" onclick="switchTab('dashboardTab')">📈 Store Analytics</button>
             <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
-            <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
+            <button class="pill-btn" onclick="startFreshNewOrder()">✨ New Order</button>
             <button class="pill-btn" onclick="switchTab('shopInsightsTab')">🧾 Shop Insights</button>
             <button class="pill-btn" onclick="switchTab('inventoryTab')">🧭 Inventory Guide</button>
             <button class="pill-btn" onclick="switchTab('ordersTab')">📦 All Orders Stream</button>
             <button class="pill-btn" onclick="switchTab('dayWiseBillsTab')">🖨️ Day-wise Bills</button>
+            <button class="pill-btn" onclick="switchTab('draftOrdersTab')">📋 Draft Orders</button>
+            <button class="pill-btn" onclick="switchTab('auditLogTab')">🧾 Audit Log</button>
         </div>
 
         <!-- TAB 1: CUSTOMERS RANKED -->
@@ -218,6 +220,29 @@
 
                 <button class="btn-submit" onclick="generateDayWiseBills()">🖨️ Generate & Open Bills</button>
             </div>
+        </div>
+
+        <!-- TAB 8: DRAFT ORDERS (agent-submitted, admin reviews/manages all) -->
+        <div id="draftOrdersTab" class="tab-content">
+            <div class="section-title">
+                <span>📋 Draft Orders</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="draftOrdersCount">0 Drafts</span>
+            </div>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+                Orders agents have sent to WhatsApp, saved here for review. Send one to Record Order to finalize it into a real order — only that finalizes it and clears it from this list.
+            </p>
+            <div id="draftOrdersList"></div>
+        </div>
+
+        <!-- TAB 9: AUDIT LOG (read-only) -->
+        <div id="auditLogTab" class="tab-content">
+            <div class="section-title">
+                <span>🧾 Audit Log</span>
+            </div>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+                Every create / update / delete / submit action on Draft Orders, most recent first.
+            </p>
+            <div id="auditLogList"></div>
         </div>
     </div>
 

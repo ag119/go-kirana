@@ -20,6 +20,15 @@
     let cartItems = [];
     let newOrderCartItems = [];
 
+    // Draft Orders (sheet-backed): agent's own WhatsApp-submitted requests,
+    // awaiting admin review/finalization. activeDraftOrderId tracks which
+    // one (if any) the order-taking flow is currently editing — must be
+    // reset to null whenever a *fresh* order is started (openOrderForm /
+    // startFreshNewOrder), otherwise submitting a different/new order would
+    // silently update the previously-edited draft instead of creating one.
+    let draftOrders = [];
+    let activeDraftOrderId = null;
+
     // --- DATA FETCHING (via Apps Script proxy — no sheet ID/gviz here) ---
     // force=true bypasses the shared localStorage cache (see app/assets/api.js) —
     // used by the shell's Refresh button. Plain navigation reuses cached data.
@@ -29,17 +38,19 @@
         status.innerHTML = '📡 Syncing real-time store data...';
 
         try {
-            const [cust, ord, items, prods] = await Promise.all([
+            const [cust, ord, items, prods, drafts] = await Promise.all([
                 GK.api.getSheet('Customers', { force }),
                 GK.api.getSheet('Orders', { force }),
                 GK.api.getSheet('Order Details', { force }),
-                GK.api.getSheet('Products', { force })
+                GK.api.getSheet('Products', { force }),
+                GK.api.getDraftOrders()
             ]);
 
             rawCustomers = cust;
             rawOrders = ord;
             rawOrderItems = items;
             rawProducts = prods;
+            draftOrders = drafts;
 
             productMapBySKU = {};
             productMapByNameAndPrice = {};
@@ -62,6 +73,7 @@
             renderFollowupGrid();
             renderPriceList(rawProducts);
             renderOrdersStream(rawOrders);
+            renderPendingOrdersTab();
 
             status.className = 'status-success';
             status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
@@ -568,6 +580,7 @@
     function openOrderForm(custId, custName, mobile) {
         activeOrderCustomer = { custId, custName, mobile };
         cartItems = [];
+        activeDraftOrderId = null;
         document.getElementById('orderFormCustMeta').innerText = `${custName} (📱 +91 ${mobile})`;
         renderCart();
         document.getElementById('orderFormModal').classList.add('active');
@@ -672,7 +685,7 @@
         return message;
     }
 
-    function sendOrderToWhatsApp() {
+    async function sendOrderToWhatsApp() {
         if (!activeOrderCustomer || !cartItems.length) {
             alert('Please add at least one item to the order.');
             return;
@@ -681,6 +694,34 @@
         const message = buildWhatsAppOrderMessage('🛒 *NEW ORDER - GO-KIRANA*', activeOrderCustomer.custName, activeOrderCustomer.mobile, cartItems);
         const waUrl = `https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(message)}`;
         window.open(waUrl, '_blank');
+
+        await persistDraftOrder({
+            customerId: activeOrderCustomer.custId,
+            customerName: activeOrderCustomer.custName,
+            customerMobile: activeOrderCustomer.mobile,
+            items: cartItems
+        });
+    }
+
+    // Saves the just-submitted order to the shared Draft Orders sheet so it
+    // shows up in Pending/Draft Orders for admin — a *separate* step from
+    // the WhatsApp send above, and deliberately non-blocking on failure
+    // (WhatsApp has already opened regardless; the agent just gets a
+    // distinct warning to retry/tell admin manually).
+    async function persistDraftOrder(payload) {
+        try {
+            if (activeDraftOrderId) {
+                await GK.api.updateDraftOrder(Object.assign({ id: activeDraftOrderId }, payload));
+            } else {
+                await GK.api.createDraftOrder(payload);
+            }
+            activeDraftOrderId = null;
+            draftOrders = await GK.api.getDraftOrders();
+            renderPendingOrdersTab();
+        } catch (err) {
+            console.error(err);
+            alert('⚠️ WhatsApp message sent, but saving to Pending Orders failed: ' + (err.message || 'Unknown error') + '. Please retry or let admin know.');
+        }
     }
 
     // --- NEW ORDER TAB LOGIC (UNREGISTERED CUSTOMER) ---
@@ -752,7 +793,7 @@
         renderNewOrderCart();
     }
 
-    function sendNewCustomerOrderToWhatsApp() {
+    async function sendNewCustomerOrderToWhatsApp() {
         const name = document.getElementById('newCustName').value.trim();
         const mobile = document.getElementById('newCustMobile').value.trim();
 
@@ -774,6 +815,127 @@
         const message = buildWhatsAppOrderMessage('✨ *NEW CUSTOMER ORDER - GO-KIRANA*', name, mobile, newOrderCartItems);
         const waUrl = `https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(message)}`;
         window.open(waUrl, '_blank');
+
+        await persistDraftOrder({
+            customerId: '',
+            customerName: name,
+            customerMobile: mobile,
+            items: newOrderCartItems
+        });
+    }
+
+    // Nav pill / home card entry point for a brand-new "New Order" — resets
+    // any in-progress edit of a pending draft so a subsequent WhatsApp send
+    // creates a fresh draft instead of overwriting the one just left behind.
+    function startFreshNewOrder() {
+        activeDraftOrderId = null;
+        newOrderCartItems = [];
+        document.getElementById('newCustName').value = '';
+        document.getElementById('newCustMobile').value = '';
+        renderNewOrderCart();
+        switchTab('newOrderTab');
+    }
+
+    // --- PENDING ORDERS TAB (agent's own Draft Orders rows) ---
+    function renderPendingOrdersTab() {
+        const container = document.getElementById('pendingOrdersList');
+        if (!container) return;
+        document.getElementById('pendingOrdersCount').innerText = `${draftOrders.length} Pending`;
+
+        if (!draftOrders.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No pending orders. Orders you submit via WhatsApp will appear here.</p>';
+            return;
+        }
+
+        const sorted = draftOrders.slice().sort((a, b) => String(b['CreatedAt']).localeCompare(String(a['CreatedAt'])));
+
+        container.innerHTML = sorted.map(d => {
+            const id = d['Id'];
+            let items = [];
+            try { items = JSON.parse(d['ItemsJson'] || '[]'); } catch (e) { items = []; }
+            const status = d['Status'] || 'Pending';
+
+            return `
+            <div class="order-card">
+                <div class="order-card-header">
+                    <div>
+                        <div class="order-id">${id}</div>
+                        <div class="order-date">👤 <strong>${d['CustomerName'] || 'Customer'}</strong> • 📱 ${d['CustomerMobile'] || ''}</div>
+                        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">${items.length} item(s)</div>
+                    </div>
+                    <select onchange="updateDraftOrderStatus('${id}', this.value)" class="input-text-standard" style="font-size:0.8rem; padding:6px; width:auto;">
+                        <option value="Pending" ${status === 'Pending' ? 'selected' : ''}>Pending</option>
+                        <option value="Confirmed" ${status === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
+                        <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                    </select>
+                </div>
+                <div class="order-items-list open">
+                    ${items.map(i => `
+                    <div class="item-row">
+                        <div class="item-name">${i.name}</div>
+                        <div class="item-meta">Qty: ${i.qty}${i.unitPrice != null ? ` • ₹${Number(i.unitPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : ' • Price N/A'}</div>
+                    </div>`).join('')}
+                </div>
+                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end;">
+                    <button class="btn-analytics" onclick="editPendingOrder('${id}')">✏️ Edit</button>
+                    <button class="btn-analytics" style="color:#ef4444;" onclick="deletePendingOrder('${id}')">🗑️ Delete</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    async function refreshPendingOrders() {
+        draftOrders = await GK.api.getDraftOrders();
+        renderPendingOrdersTab();
+    }
+
+    async function updateDraftOrderStatus(id, status) {
+        try {
+            await GK.api.updateDraftOrder({ id, status });
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to update status.'));
+        }
+        await refreshPendingOrders();
+    }
+
+    function editPendingOrder(id) {
+        const draft = draftOrders.find(d => String(d['Id']) === String(id));
+        if (!draft) return;
+
+        activeDraftOrderId = id;
+        let items = [];
+        try { items = JSON.parse(draft['ItemsJson'] || '[]'); } catch (e) { items = []; }
+        const normalizedItems = items.map(i => ({
+            sku: i.sku || null,
+            name: i.name,
+            qty: i.qty || 1,
+            unitPrice: i.unitPrice != null ? i.unitPrice : null,
+            costPrice: i.costPrice || 0
+        }));
+
+        if (draft['CustomerId']) {
+            activeOrderCustomer = { custId: draft['CustomerId'], custName: draft['CustomerName'], mobile: draft['CustomerMobile'] };
+            cartItems = normalizedItems;
+            document.getElementById('orderFormCustMeta').innerText = `${draft['CustomerName']} (📱 +91 ${draft['CustomerMobile'] || ''})`;
+            renderCart();
+            document.getElementById('orderFormModal').classList.add('active');
+        } else {
+            newOrderCartItems = normalizedItems;
+            document.getElementById('newCustName').value = draft['CustomerName'] || '';
+            document.getElementById('newCustMobile').value = draft['CustomerMobile'] || '';
+            renderNewOrderCart();
+            switchTab('newOrderTab');
+        }
+    }
+
+    async function deletePendingOrder(id) {
+        if (!confirm('Delete this pending order? This cannot be undone.')) return;
+        try {
+            await GK.api.deleteDraftOrder({ id });
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to delete.'));
+        }
+        await refreshPendingOrders();
     }
 
     function toggleOrderItems(orderId) {
@@ -1119,6 +1281,10 @@
         addNewOrderItem,
         removeNewOrderCartItem,
         sendNewCustomerOrderToWhatsApp,
+        startFreshNewOrder,
+        updateDraftOrderStatus,
+        editPendingOrder,
+        deletePendingOrder,
         toggleOrderItems,
         closeModal,
         viewOrderBill

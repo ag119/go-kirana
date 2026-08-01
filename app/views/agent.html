@@ -6,9 +6,10 @@
             <button class="pill-btn active" onclick="switchTab('homeTab')">🏠 Dashboard</button>
             <button class="pill-btn" onclick="switchTab('customersTab')">🏆 Customers</button>
             <button class="pill-btn" onclick="switchTab('followupTab')">🚨 Follow Up</button>
-            <button class="pill-btn" onclick="switchTab('newOrderTab')">✨ New Order</button>
+            <button class="pill-btn" onclick="startFreshNewOrder()">✨ New Order</button>
             <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
             <button class="pill-btn" onclick="switchTab('ordersTab')">📦 Orders Stream</button>
+            <button class="pill-btn" onclick="switchTab('pendingOrdersTab')">📋 Pending Orders</button>
         </div>
 
         <!-- TAB 0: HOME PAGE (4 PRIMARY CARDS) -->
@@ -34,7 +35,7 @@
                 </div>
 
                 <!-- Card 3: New Order -->
-                <div class="home-card" onclick="switchTab('newOrderTab')">
+                <div class="home-card" onclick="startFreshNewOrder()">
                     <div class="home-card-icon" style="background:#e0e7ff; color:#3730a3;">✨</div>
                     <h3>3. New Order</h3>
                     <p>Quick order builder for new or unregistered customers</p>
@@ -155,6 +156,18 @@
                 <input type="text" id="orderSearch" placeholder="Search order ID or customer name..." onkeyup="filterOrders()">
             </div>
             <div id="ordersListStream"></div>
+        </div>
+
+        <!-- TAB 6: PENDING ORDERS (agent's own WhatsApp-submitted requests, awaiting admin finalization) -->
+        <div id="pendingOrdersTab" class="tab-content">
+            <div class="section-title">
+                <span>📋 Pending Orders</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="pendingOrdersCount">0 Pending</span>
+            </div>
+            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+                Orders you've sent to WhatsApp are saved here automatically. You can update their status, edit, or remove your own — only admin can finalize them into a real order.
+            </p>
+            <div id="pendingOrdersList"></div>
         </div>
     </div>
 

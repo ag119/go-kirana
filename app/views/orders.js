@@ -14,6 +14,11 @@
     let drafts = [];
     let activeDraftId = null;
 
+    // Sheet-backed Draft Orders handoff (from Admin's "Send to Record Order"):
+    // deliberately a SEPARATE id from activeDraftId above — the two draft
+    // systems don't interfere with each other.
+    let activeDraftOrderId = null;
+
     // --- RELEVANCE SEARCH & FUZZY MATCHING (identical to Agent Hub / Admin's
     // product search, so the experience is the same across every view). ---
     function levenshteinDistance(a, b) {
@@ -441,13 +446,22 @@
         };
 
         try {
-            await GK.api.createOrder(payload);
+            if (activeDraftOrderId) {
+                await GK.api.submitDraftOrder(Object.assign({ id: activeDraftOrderId }, payload));
+            } else {
+                await GK.api.createOrder(payload);
+            }
             alert(`✅ Order ${autoId} recorded successfully in Google Sheet!`);
 
             if (activeDraftId) {
                 drafts = drafts.filter(d => d.id !== activeDraftId);
                 persistDrafts();
                 renderDraftsList();
+            }
+            if (activeDraftOrderId) {
+                activeDraftOrderId = null;
+                const banner = document.getElementById('finalizeDraftBanner');
+                if (banner) banner.style.display = 'none';
             }
             clearOrderForm();
 
@@ -795,13 +809,81 @@
         setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
     }
 
-    function initView(force) {
+    // --- SHEET-BACKED DRAFT ORDERS HANDOFF (from Admin's "Send to Record
+    // Order") ---------------------------------------------------------------
+    // Consumes the one-shot sessionStorage payload set by admin.js. The
+    // `finally` ensures a malformed payload can't get stuck replaying on
+    // every future visit to Record Order.
+    //
+    // Item shape normalization: Agent Hub's cart uses {sku:null,
+    // unitPrice:null} for an unmatched/custom item, but this view's own
+    // native custom-item convention (see addSelectedProductToTable) is
+    // {sku:'CUSTOM', unitPrice:0} — the price input must show a real 0 (not
+    // "null") so it visibly prompts editing before being written to the
+    // permanent Order Details sheet.
+    function consumeDraftOrderHandoff() {
+        const raw = sessionStorage.getItem('gk_load_draft_order');
+        if (!raw) return;
+
+        try {
+            const draft = JSON.parse(raw);
+            activeDraftOrderId = draft.id;
+
+            sheetOrderCart = (draft.items || []).map(i => ({
+                sku: i.sku || 'CUSTOM',
+                name: i.name,
+                qty: i.qty || 1,
+                unitPrice: i.unitPrice != null ? i.unitPrice : 0,
+                costPrice: i.costPrice || 0
+            }));
+            renderSheetOrderTable();
+
+            document.getElementById('orderCustInput').value = draft.customerId
+                ? `${draft.customerName} - ${draft.customerMobile} [ID: ${draft.customerId}]`
+                : (draft.customerName || '');
+            document.getElementById('selectedCustId').value = draft.customerId || '';
+            document.getElementById('selectedCustName').value = draft.customerName || '';
+
+            const statusDiv = document.getElementById('custSelectionStatus');
+            if (draft.customerId) {
+                statusDiv.style.display = 'block';
+                statusDiv.innerText = `✔ Selected: ${draft.customerName} (ID: ${draft.customerId})`;
+            } else {
+                // No CustomerId on the draft (agent's "New Order" flow) — try
+                // to auto-match in case this shopkeeper has since been
+                // registered; otherwise the existing "select a valid
+                // customer" validation will correctly block submission.
+                onCustomerSelected();
+            }
+
+            const banner = document.getElementById('finalizeDraftBanner');
+            const bannerText = document.getElementById('finalizeDraftBannerText');
+            if (bannerText) bannerText.innerText = `📤 Finalizing a pending order from ${draft.createdBy || 'an agent'} — submitting will remove it from Draft Orders.`;
+            if (banner) banner.style.display = 'flex';
+
+            recalculateAutoOrderId();
+        } catch (e) {
+            console.error('Malformed draft order handoff payload:', e);
+        } finally {
+            sessionStorage.removeItem('gk_load_draft_order');
+        }
+    }
+
+    function cancelFinalizeDraftOrder() {
+        activeDraftOrderId = null;
+        const banner = document.getElementById('finalizeDraftBanner');
+        if (banner) banner.style.display = 'none';
+        clearOrderForm();
+    }
+
+    async function initView(force) {
         const today = new Date().toISOString().substring(0, 10);
         document.getElementById('orderDateInput').value = today;
         document.getElementById('fulfillmentDateInput').value = today;
         loadDraftsFromStorage();
         renderDraftsList();
-        fetchLiveData(force);
+        await fetchLiveData(force);
+        consumeDraftOrderHandoff();
     }
 
     Object.assign(window, {
@@ -823,7 +905,8 @@
         clearOrderForm,
         openRequirementModal,
         closeModal,
-        exportDraftsReport
+        exportDraftsReport,
+        cancelFinalizeDraftOrder
     });
 
     // The shell calls GK_viewInit itself right after this script loads —

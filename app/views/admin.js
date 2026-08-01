@@ -21,6 +21,14 @@
     let chartInstance = null;
     let chartJsLoadPromise = null;
 
+    // Draft Orders (sheet-backed): admin sees/manages every agent's rows.
+    // activeDraftOrderId mirrors Agent Hub's state-reset edge case — must be
+    // reset to null whenever a *fresh* order is started (openOrderForm /
+    // startFreshNewOrder), otherwise submitting a different/new order would
+    // silently update the previously-edited draft instead of creating one.
+    let draftOrders = [];
+    let activeDraftOrderId = null;
+
     function loadChartJs() {
         if (window.Chart) return Promise.resolve();
         if (chartJsLoadPromise) return chartJsLoadPromise;
@@ -45,17 +53,20 @@
         try {
             await loadChartJs();
 
-            const [cust, ord, items, prods] = await Promise.all([
+            const [cust, ord, items, prods, drafts, auditLog] = await Promise.all([
                 GK.api.getSheet('Customers', { force }),
                 GK.api.getSheet('Orders', { force }),
                 GK.api.getSheet('Order Details', { force }),
-                GK.api.getSheet('Products', { force })
+                GK.api.getSheet('Products', { force }),
+                GK.api.getDraftOrders(),
+                GK.api.getSheet('Audit Log', { force })
             ]);
 
             rawCustomers = cust;
             rawOrders = ord;
             rawOrderItems = items;
             rawProducts = prods;
+            draftOrders = drafts;
 
             productMapBySKU = {};
             productMapByNameAndPrice = {};
@@ -83,6 +94,8 @@
             renderShopInsightSelect();
             renderInventoryGuide();
             initDayWiseBillsTab();
+            renderDraftOrdersTab();
+            renderAuditLogTab(auditLog);
 
             status.className = 'status-success';
             status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
@@ -619,6 +632,7 @@
     function openOrderForm(custId, custName, mobile) {
         activeOrderCustomer = { custId, custName, mobile };
         cartItems = [];
+        activeDraftOrderId = null;
         document.getElementById('orderFormCustMeta').innerText = `${custName} (📱 +91 ${mobile})`;
         renderCart();
         document.getElementById('orderFormModal').classList.add('active');
@@ -705,13 +719,38 @@
         return message;
     }
 
-    function sendOrderToWhatsApp() {
+    async function sendOrderToWhatsApp() {
         if (!activeOrderCustomer || !cartItems.length) {
             alert('Please add at least one item to the order.');
             return;
         }
         const message = buildWhatsAppOrderMessage('🛒 *NEW ORDER - GO-KIRANA*', activeOrderCustomer.custName, activeOrderCustomer.mobile, cartItems);
         window.open(`https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(message)}`, '_blank');
+
+        await persistDraftOrder({
+            customerId: activeOrderCustomer.custId,
+            customerName: activeOrderCustomer.custName,
+            customerMobile: activeOrderCustomer.mobile,
+            items: cartItems
+        });
+    }
+
+    // Saves the just-submitted order to the shared Draft Orders sheet —
+    // separate from the WhatsApp send above, and non-blocking on failure
+    // (WhatsApp has already opened regardless).
+    async function persistDraftOrder(payload) {
+        try {
+            if (activeDraftOrderId) {
+                await GK.api.updateDraftOrder(Object.assign({ id: activeDraftOrderId }, payload));
+            } else {
+                await GK.api.createDraftOrder(payload);
+            }
+            activeDraftOrderId = null;
+            await refreshDraftOrders();
+        } catch (err) {
+            console.error(err);
+            alert('⚠️ WhatsApp message sent, but saving to Draft Orders failed: ' + (err.message || 'Unknown error') + '. Please retry.');
+        }
     }
 
     function addNewOrderItem() {
@@ -768,7 +807,7 @@
         renderNewOrderCart();
     }
 
-    function sendNewCustomerOrderToWhatsApp() {
+    async function sendNewCustomerOrderToWhatsApp() {
         const name = document.getElementById('newCustName').value.trim();
         const mobile = document.getElementById('newCustMobile').value.trim();
 
@@ -778,6 +817,189 @@
 
         const message = buildWhatsAppOrderMessage('✨ *NEW CUSTOMER ORDER - GO-KIRANA*', name, mobile, newOrderCartItems);
         window.open(`https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(message)}`, '_blank');
+
+        await persistDraftOrder({
+            customerId: '',
+            customerName: name,
+            customerMobile: mobile,
+            items: newOrderCartItems
+        });
+    }
+
+    // Nav pill entry point for a brand-new "New Order" — resets any
+    // in-progress edit of a draft so a subsequent WhatsApp send creates a
+    // fresh draft instead of overwriting the one just left behind.
+    function startFreshNewOrder() {
+        activeDraftOrderId = null;
+        newOrderCartItems = [];
+        document.getElementById('newCustName').value = '';
+        document.getElementById('newCustMobile').value = '';
+        renderNewOrderCart();
+        switchTab('newOrderTab');
+    }
+
+    // --- DRAFT ORDERS TAB (all agents' rows — server already returns
+    // everything for role:'admin', no client-side ownership filtering) ---
+    function renderDraftOrdersTab() {
+        const container = document.getElementById('draftOrdersList');
+        if (!container) return;
+        document.getElementById('draftOrdersCount').innerText = `${draftOrders.length} Drafts`;
+
+        if (!draftOrders.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No draft orders right now.</p>';
+            return;
+        }
+
+        const sorted = draftOrders.slice().sort((a, b) => String(b['CreatedAt']).localeCompare(String(a['CreatedAt'])));
+
+        container.innerHTML = sorted.map(d => {
+            const id = d['Id'];
+            let items = [];
+            try { items = JSON.parse(d['ItemsJson'] || '[]'); } catch (e) { items = []; }
+            const status = d['Status'] || 'Pending';
+
+            return `
+            <div class="order-card">
+                <div class="order-card-header">
+                    <div>
+                        <div class="order-id">${id}</div>
+                        <div class="order-date">👤 <strong>${d['CustomerName'] || 'Customer'}</strong> • 📱 ${d['CustomerMobile'] || ''}</div>
+                        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">By ${d['CreatedBy'] || '?'} • ${items.length} item(s)</div>
+                    </div>
+                    <select onchange="updateDraftOrderStatus('${id}', this.value)" class="input-text-standard" style="font-size:0.8rem; padding:6px; width:auto;">
+                        <option value="Pending" ${status === 'Pending' ? 'selected' : ''}>Pending</option>
+                        <option value="Confirmed" ${status === 'Confirmed' ? 'selected' : ''}>Confirmed</option>
+                        <option value="On Hold" ${status === 'On Hold' ? 'selected' : ''}>On Hold</option>
+                    </select>
+                </div>
+                <div class="order-items-list open">
+                    ${items.map(i => `
+                    <div class="item-row">
+                        <div class="item-name">${i.name}</div>
+                        <div class="item-meta">Qty: ${i.qty}${i.unitPrice != null ? ` • ₹${Number(i.unitPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : ' • Price N/A'}</div>
+                    </div>`).join('')}
+                </div>
+                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+                    <button class="btn-analytics" onclick="sendDraftOrderToRecordOrder('${id}')">📤 Send to Record Order</button>
+                    <button class="btn-analytics" onclick="editDraftOrderEntry('${id}')">✏️ Edit</button>
+                    <button class="btn-analytics" style="color:#ef4444;" onclick="deleteDraftOrderEntry('${id}')">🗑️ Delete</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    async function refreshDraftOrders() {
+        draftOrders = await GK.api.getDraftOrders();
+        renderDraftOrdersTab();
+    }
+
+    async function updateDraftOrderStatus(id, status) {
+        try {
+            await GK.api.updateDraftOrder({ id, status });
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to update status.'));
+        }
+        await refreshDraftOrders();
+    }
+
+    function editDraftOrderEntry(id) {
+        const draft = draftOrders.find(d => String(d['Id']) === String(id));
+        if (!draft) return;
+
+        activeDraftOrderId = id;
+        let items = [];
+        try { items = JSON.parse(draft['ItemsJson'] || '[]'); } catch (e) { items = []; }
+        const normalizedItems = items.map(i => ({
+            sku: i.sku || null,
+            name: i.name,
+            qty: i.qty || 1,
+            unitPrice: i.unitPrice != null ? i.unitPrice : null,
+            costPrice: i.costPrice || 0
+        }));
+
+        if (draft['CustomerId']) {
+            activeOrderCustomer = { custId: draft['CustomerId'], custName: draft['CustomerName'], mobile: draft['CustomerMobile'] };
+            cartItems = normalizedItems;
+            document.getElementById('orderFormCustMeta').innerText = `${draft['CustomerName']} (📱 +91 ${draft['CustomerMobile'] || ''})`;
+            renderCart();
+            document.getElementById('orderFormModal').classList.add('active');
+        } else {
+            newOrderCartItems = normalizedItems;
+            document.getElementById('newCustName').value = draft['CustomerName'] || '';
+            document.getElementById('newCustMobile').value = draft['CustomerMobile'] || '';
+            renderNewOrderCart();
+            switchTab('newOrderTab');
+        }
+    }
+
+    async function deleteDraftOrderEntry(id) {
+        if (!confirm('Delete this draft order? This cannot be undone.')) return;
+        try {
+            await GK.api.deleteDraftOrder({ id });
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to delete.'));
+        }
+        await refreshDraftOrders();
+    }
+
+    // Hands a draft off to Record Order for final submission. sessionStorage
+    // is the handoff mechanism (not a hash query param) since the shell
+    // router does an *exact* match against ROUTES.
+    function sendDraftOrderToRecordOrder(id) {
+        const draft = draftOrders.find(d => String(d['Id']) === String(id));
+        if (!draft) return;
+        let items = [];
+        try { items = JSON.parse(draft['ItemsJson'] || '[]'); } catch (e) { items = []; }
+
+        sessionStorage.setItem('gk_load_draft_order', JSON.stringify({
+            id: draft['Id'],
+            customerId: draft['CustomerId'] || '',
+            customerName: draft['CustomerName'] || '',
+            customerMobile: draft['CustomerMobile'] || '',
+            items: items,
+            createdBy: draft['CreatedBy'] || ''
+        }));
+        location.hash = '#/orders';
+    }
+
+    // --- AUDIT LOG TAB (read-only) ---
+    function renderAuditLogTab(rows) {
+        const container = document.getElementById('auditLogList');
+        if (!container) return;
+
+        if (!rows || !rows.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No audit log entries yet.</p>';
+            return;
+        }
+
+        const sorted = rows.slice().sort((a, b) => String(b['Timestamp']).localeCompare(String(a['Timestamp'])));
+
+        container.innerHTML = `
+        <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+            <thead>
+                <tr style="text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); text-transform:uppercase; font-size:0.7rem; letter-spacing:0.04em;">
+                    <th style="padding:8px;">Time</th>
+                    <th style="padding:8px;">User</th>
+                    <th style="padding:8px;">Role</th>
+                    <th style="padding:8px;">Action</th>
+                    <th style="padding:8px;">Draft ID</th>
+                    <th style="padding:8px;">Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sorted.map(r => `
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:8px; white-space:nowrap;">${new Date(r['Timestamp']).toLocaleString('en-IN')}</td>
+                    <td style="padding:8px;">${r['Username'] || ''}</td>
+                    <td style="padding:8px;">${r['Role'] || ''}</td>
+                    <td style="padding:8px; text-transform:capitalize;">${r['Action'] || ''}</td>
+                    <td style="padding:8px; font-family:monospace;">${r['DraftOrderId'] || ''}</td>
+                    <td style="padding:8px;">${r['Details'] || ''}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
     }
 
     function toggleOrderItems(orderId) {
@@ -1452,7 +1674,12 @@
         toggleCockpit,
         viewOrderBill,
         updateDayWiseBillsSummary,
-        generateDayWiseBills
+        generateDayWiseBills,
+        startFreshNewOrder,
+        updateDraftOrderStatus,
+        editDraftOrderEntry,
+        deleteDraftOrderEntry,
+        sendDraftOrderToRecordOrder
     });
 
     // The shell calls GK_viewInit itself right after this script loads —
