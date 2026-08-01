@@ -203,6 +203,36 @@
         return data;
     }
 
+    async function addInventoryStock(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'addInventoryStock', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to add inventory stock.');
+        }
+        clearCache();
+        return data;
+    }
+
+    async function updateInventoryItem(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'updateInventoryItem', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to update inventory item.');
+        }
+        clearCache();
+        return data;
+    }
+
+    async function deleteInventoryItem(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'deleteInventoryItem', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to delete inventory item.');
+        }
+        clearCache();
+        return data;
+    }
+
     global.GK = global.GK || {};
     global.GK.api = {
         login,
@@ -215,6 +245,9 @@
         updateDraftOrder,
         deleteDraftOrder,
         submitDraftOrder,
+        addInventoryStock,
+        updateInventoryItem,
+        deleteInventoryItem,
         isLoggedIn: () => !!getSession(),
         currentUser: () => (getSession() || {}).user || null,
         currentRole: () => (getSession() || {}).role || 'agent'

@@ -29,6 +29,12 @@
     let draftOrders = [];
     let activeDraftOrderId = null;
 
+    // Inventory management state
+    let rawInventory = [];
+    let invSelectedSku = null;
+    let invSelectedName = null;
+    let editingInventorySku = null;
+
     function loadChartJs() {
         if (window.Chart) return Promise.resolve();
         if (chartJsLoadPromise) return chartJsLoadPromise;
@@ -53,13 +59,14 @@
         try {
             await loadChartJs();
 
-            const [cust, ord, items, prods, drafts, auditLog] = await Promise.all([
+            const [cust, ord, items, prods, drafts, auditLog, inventory] = await Promise.all([
                 GK.api.getSheet('Customers', { force }),
                 GK.api.getSheet('Orders', { force }),
                 GK.api.getSheet('Order Details', { force }),
                 GK.api.getSheet('Products', { force }),
                 GK.api.getDraftOrders(),
-                GK.api.getSheet('Audit Log', { force })
+                GK.api.getSheet('Audit Log', { force }),
+                GK.api.getSheet('Inventory', { force })
             ]);
 
             rawCustomers = cust;
@@ -67,6 +74,7 @@
             rawOrderItems = items;
             rawProducts = prods;
             draftOrders = drafts;
+            rawInventory = inventory;
 
             productMapBySKU = {};
             productMapByNameAndPrice = {};
@@ -96,6 +104,7 @@
             initDayWiseBillsTab();
             renderDraftOrdersTab();
             renderAuditLogTab(auditLog);
+            renderInventoryMgmtList(rawInventory);
 
             status.className = 'status-success';
             status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
@@ -1002,6 +1011,261 @@
         </div>`;
     }
 
+    // --- MANAGE INVENTORY (add/restock, edit, remove) ----------------------
+    // Reuses the same fuzzy product search (getMatchScore) as everywhere
+    // else, but with its own dropdown/selection handler (rather than the
+    // shared handleSearchSuggestInput/selectSuggestedProduct) since
+    // selecting a product here needs to resolve a SKU and look up its
+    // current Inventory row, not just fill a text field.
+    function handleInventorySearchInput(inputEl) {
+        const dropdown = document.getElementById('invItemDropdown');
+        if (!dropdown) return;
+
+        invSelectedSku = null;
+        invSelectedName = null;
+        const infoBox = document.getElementById('invSelectedItemInfo');
+        if (infoBox) infoBox.style.display = 'none';
+        const marginBox = document.getElementById('invMarginPreview');
+        if (marginBox) marginBox.style.display = 'none';
+
+        const query = inputEl.value.trim();
+        if (!query) { dropdown.style.display = 'none'; return; }
+
+        const scoredMatches = rawProducts
+            .map(p => ({ product: p, score: getMatchScore(p, query) }))
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
+
+        if (!scoredMatches.length) { dropdown.style.display = 'none'; return; }
+
+        dropdown.innerHTML = scoredMatches.map(m => {
+            const p = m.product;
+            const sku = (p['SKU'] || '').trim();
+            const name = p['Item Name'] || p['Standard Name'] || sku;
+            return `
+            <div class="custom-suggest-item" onclick="selectInventorySearchItem('${sku.replace(/'/g, "\\'")}')">
+                <span>${name}</span>
+                <span style="color:var(--text-muted); font-size:0.75rem; font-family:monospace;">${sku}</span>
+            </div>
+            `;
+        }).join('');
+
+        dropdown.style.display = 'block';
+    }
+
+    function selectInventorySearchItem(sku) {
+        const prod = rawProducts.find(p => (p['SKU'] || '').trim() === sku);
+        if (!prod) return;
+        const name = prod['Item Name'] || prod['Standard Name'] || sku;
+
+        invSelectedSku = sku;
+        invSelectedName = name;
+        document.getElementById('invItemSearchInput').value = name;
+        document.getElementById('invItemDropdown').style.display = 'none';
+
+        const existing = rawInventory.find(r => String(r['SKU'] || '').trim() === sku);
+        const infoBox = document.getElementById('invSelectedItemInfo');
+        if (existing) {
+            const stock = Number(existing['Stock']) || 0;
+            infoBox.innerHTML = `✔ Already in inventory — current stock: <strong>${stock}</strong>. Submitting will add your entered Stock to this.`;
+
+            // Pre-fill from the existing row so admin only has to tweak
+            // Selling Price to dial in the margin, not re-type everything.
+            document.getElementById('invCasePriceInput').value = toNum(existing['Case Price']) || '';
+            document.getElementById('invUnitsInCaseInput').value = toNum(existing['Units in case'] ?? existing['Units In Case']) || '';
+            document.getElementById('invSellingPriceInput').value = toNum(existing['Selling Price']) || '';
+        } else {
+            infoBox.innerHTML = `➕ Not yet in inventory — submitting will create a new Inventory row.`;
+        }
+        infoBox.style.display = 'block';
+        updateInventoryMarginPreview();
+    }
+
+    // Mirrors the Inventory sheet's own formulas (Per Unit Price = Case
+    // Price / Units in Case; Margin % = markup over that per-unit cost, not
+    // over Selling Price — confirmed against real sheet rows) so what's
+    // shown while typing matches what the sheet will compute once saved.
+    // TARGET_MARGIN matches the 4% target already used in Inventory Guide.
+    function updateInventoryMarginPreview() {
+        const box = document.getElementById('invMarginPreview');
+        if (!box) return;
+
+        const casePrice = parseFloat(document.getElementById('invCasePriceInput').value);
+        const unitsInCase = parseFloat(document.getElementById('invUnitsInCaseInput').value);
+        const sellingPrice = parseFloat(document.getElementById('invSellingPriceInput').value);
+
+        if (!(casePrice >= 0) || !(unitsInCase > 0) || isNaN(sellingPrice) || sellingPrice < 0) {
+            box.style.display = 'none';
+            return;
+        }
+
+        const TARGET_MARGIN = 4.0;
+        const perUnitCost = casePrice / unitsInCase;
+        const margin = perUnitCost > 0 ? ((sellingPrice - perUnitCost) / perUnitCost) * 100 : 0;
+
+        let color = '#ef4444'; // loss
+        if (margin >= TARGET_MARGIN) color = '#10b981'; // at/above target
+        else if (margin >= 0) color = '#d97706'; // positive but below target
+
+        box.innerHTML = `Cost per unit: <strong>₹${perUnitCost.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
+            &nbsp;•&nbsp; Margin: <strong style="color:${color};">${margin.toLocaleString('en-IN', {maximumFractionDigits:2})}%</strong>
+            ${margin < TARGET_MARGIN ? `<span style="color:var(--text-muted); font-size:0.78rem;"> (target ${TARGET_MARGIN}%+)</span>` : ''}`;
+        box.style.display = 'block';
+    }
+
+    async function submitInventoryAdd() {
+        if (!invSelectedSku) { alert('Please search and select a product first.'); return; }
+
+        const stock = parseFloat(document.getElementById('invStockInput').value);
+        const casePrice = parseFloat(document.getElementById('invCasePriceInput').value);
+        const unitsInCase = parseFloat(document.getElementById('invUnitsInCaseInput').value);
+        const sellingPrice = parseFloat(document.getElementById('invSellingPriceInput').value);
+
+        if (!(stock > 0)) { alert('Please enter a valid Stock quantity.'); return; }
+        if (isNaN(casePrice) || casePrice < 0) { alert('Please enter a valid Case Price.'); return; }
+        if (!(unitsInCase > 0)) { alert('Please enter valid Units in Case.'); return; }
+        if (isNaN(sellingPrice) || sellingPrice < 0) { alert('Please enter a valid Selling Price.'); return; }
+
+        try {
+            await GK.api.addInventoryStock({
+                sku: invSelectedSku,
+                itemName: invSelectedName,
+                stock: stock,
+                casePrice: casePrice,
+                unitsInCase: unitsInCase,
+                sellingPrice: sellingPrice
+            });
+
+            document.getElementById('invItemSearchInput').value = '';
+            document.getElementById('invStockInput').value = '';
+            document.getElementById('invCasePriceInput').value = '';
+            document.getElementById('invUnitsInCaseInput').value = '';
+            document.getElementById('invSellingPriceInput').value = '';
+            document.getElementById('invSelectedItemInfo').style.display = 'none';
+            document.getElementById('invMarginPreview').style.display = 'none';
+            invSelectedSku = null;
+            invSelectedName = null;
+
+            await refreshInventoryMgmt();
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to update inventory.'));
+        }
+    }
+
+    async function refreshInventoryMgmt() {
+        rawInventory = await GK.api.getSheet('Inventory', { force: true });
+        renderInventoryMgmtList(rawInventory);
+    }
+
+    function filterInventoryMgmt() {
+        const q = document.getElementById('invMgmtSearch').value.toLowerCase();
+        const filtered = rawInventory.filter(r =>
+            (r['Item Name'] || '').toLowerCase().includes(q) ||
+            (r['SKU'] || '').toLowerCase().includes(q)
+        );
+        renderInventoryMgmtList(filtered);
+    }
+
+    function renderInventoryMgmtList(rows) {
+        const container = document.getElementById('invMgmtList');
+        if (!container) return;
+        document.getElementById('invMgmtCount').innerText = `${rows.length} Items`;
+
+        if (!rows.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No inventory items yet.</p>';
+            return;
+        }
+
+        container.innerHTML = `
+        <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+            <thead>
+                <tr style="text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); text-transform:uppercase; font-size:0.7rem; letter-spacing:0.04em;">
+                    <th style="padding:8px;">Item</th>
+                    <th style="padding:8px;">SKU</th>
+                    <th style="padding:8px; text-align:right;">Stock</th>
+                    <th style="padding:8px; text-align:right;">Case Price</th>
+                    <th style="padding:8px; text-align:right;">Units/Case</th>
+                    <th style="padding:8px; text-align:right;">Per Unit</th>
+                    <th style="padding:8px; text-align:right;">Selling Price</th>
+                    <th style="padding:8px; text-align:right;">Margin</th>
+                    <th style="padding:8px; text-align:right;">Current Asset</th>
+                    <th style="padding:8px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows.map(r => {
+                    const sku = String(r['SKU'] || '').trim();
+                    const stock = toNum(r['Stock']);
+                    const unitsInCase = r['Units in case'] ?? r['Units In Case'] ?? '';
+                    return `
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px; font-weight:700;">${r['Item Name'] || ''}</td>
+                        <td style="padding:8px; font-family:monospace; font-size:0.75rem; color:var(--text-muted);">${sku}</td>
+                        <td style="padding:8px; text-align:right; font-weight:700; ${stock < 0 ? 'color:#ef4444;' : ''}">${stock}</td>
+                        <td style="padding:8px; text-align:right;">₹${toNum(r['Case Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                        <td style="padding:8px; text-align:right;">${unitsInCase}</td>
+                        <td style="padding:8px; text-align:right;">₹${toNum(r['Per Unit Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                        <td style="padding:8px; text-align:right;">₹${toNum(r['Selling Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                        <td style="padding:8px; text-align:right;">${r['Margin'] !== undefined && r['Margin'] !== '' ? r['Margin'] : '—'}</td>
+                        <td style="padding:8px; text-align:right;">₹${toNum(r['Current Asset']).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                        <td style="padding:8px; text-align:right; white-space:nowrap;">
+                            <button class="btn-analytics" onclick="editInventoryItem('${sku.replace(/'/g, "\\'")}')">✏️</button>
+                            <button class="btn-analytics" style="color:#ef4444;" onclick="deleteInventoryItemPrompt('${sku.replace(/'/g, "\\'")}')">🗑️</button>
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
+        </div>`;
+    }
+
+    function editInventoryItem(sku) {
+        const row = rawInventory.find(r => String(r['SKU'] || '').trim() === sku);
+        if (!row) return;
+
+        editingInventorySku = sku;
+        document.getElementById('editInvItemName').innerText = row['Item Name'] || sku;
+        document.getElementById('editInvItemSku').innerText = `SKU: ${sku}`;
+        document.getElementById('editInvStock').value = toNum(row['Stock']);
+        document.getElementById('editInvCasePrice').value = toNum(row['Case Price']);
+        document.getElementById('editInvUnitsInCase').value = toNum(row['Units in case'] ?? row['Units In Case']);
+        document.getElementById('editInvSellingPrice').value = toNum(row['Selling Price']);
+        document.getElementById('editInventoryModal').classList.add('active');
+    }
+
+    async function saveInventoryItemEdit() {
+        if (!editingInventorySku) return;
+
+        try {
+            await GK.api.updateInventoryItem({
+                sku: editingInventorySku,
+                stock: parseFloat(document.getElementById('editInvStock').value) || 0,
+                casePrice: parseFloat(document.getElementById('editInvCasePrice').value) || 0,
+                unitsInCase: parseFloat(document.getElementById('editInvUnitsInCase').value) || 0,
+                sellingPrice: parseFloat(document.getElementById('editInvSellingPrice').value) || 0
+            });
+            editingInventorySku = null;
+            closeModal('editInventoryModal');
+            await refreshInventoryMgmt();
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to update inventory item.'));
+        }
+    }
+
+    async function deleteInventoryItemPrompt(sku) {
+        const row = rawInventory.find(r => String(r['SKU'] || '').trim() === sku);
+        if (!confirm(`Delete "${row ? row['Item Name'] : sku}" from Inventory? This cannot be undone.`)) return;
+
+        try {
+            await GK.api.deleteInventoryItem({ sku });
+            await refreshInventoryMgmt();
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to delete inventory item.'));
+        }
+    }
+
     function toggleOrderItems(orderId) {
         const list = document.getElementById(`items-${orderId}`);
         if (list) list.classList.toggle('open');
@@ -1679,7 +1943,15 @@
         updateDraftOrderStatus,
         editDraftOrderEntry,
         deleteDraftOrderEntry,
-        sendDraftOrderToRecordOrder
+        sendDraftOrderToRecordOrder,
+        handleInventorySearchInput,
+        selectInventorySearchItem,
+        updateInventoryMarginPreview,
+        submitInventoryAdd,
+        filterInventoryMgmt,
+        editInventoryItem,
+        saveInventoryItemEdit,
+        deleteInventoryItemPrompt
     });
 
     // The shell calls GK_viewInit itself right after this script loads —

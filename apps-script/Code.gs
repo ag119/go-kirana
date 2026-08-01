@@ -330,6 +330,105 @@ function decrementInventoryStock_(items) {
 }
 
 /* ---------------------------------------------------------------------
+ * Inventory management (admin-only)
+ *
+ * "Per Unit Price", "Margin", and "Current Asset" are formula-derived
+ * columns in the Inventory sheet — deliberately absent from
+ * INVENTORY_HEADER_ALIASES so appendRowByHeaders_/updateRowByHeaders_
+ * never write to them and never disturb the sheet's own formulas.
+ * ------------------------------------------------------------------- */
+
+const INVENTORY_HEADER_ALIASES = {
+  sku: ['SKU'],
+  itemName: ['Item Name'],
+  stock: ['Stock'],
+  casePrice: ['Case Price'],
+  unitsInCase: ['Units in case', 'Units In Case'],
+  sellingPrice: ['Selling Price']
+};
+
+function getInventoryRowBySku_(sku) {
+  const rows = sheetToRows_(INVENTORY_SHEET);
+  return rows.find(r => String(r['SKU'] || '').trim() === String(sku).trim()) || null;
+}
+
+// Add / restock: if the SKU already has an Inventory row, the given Stock
+// is ADDED to whatever is already there (Case Price / Units in case /
+// Selling Price are replaced with the freshly-entered values, since a
+// restock is exactly when those legitimately change). If the SKU isn't
+// present yet, a new row is created.
+function handleAddInventoryStock_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can manage inventory.' };
+
+  const sku = String(body.sku || '').trim();
+  if (!sku) return { status: 'error', message: 'SKU is required.' };
+
+  return withLock_(() => {
+    const existing = getInventoryRowBySku_(sku);
+    const casePrice = Number(body.casePrice) || 0;
+    const unitsInCase = Number(body.unitsInCase) || 0;
+    const sellingPrice = Number(body.sellingPrice) || 0;
+    const addQty = Number(body.stock) || 0;
+
+    if (existing) {
+      const newStock = (Number(existing['Stock']) || 0) + addQty;
+      updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, {
+        stock: newStock,
+        casePrice: casePrice,
+        unitsInCase: unitsInCase,
+        sellingPrice: sellingPrice
+      }, INVENTORY_HEADER_ALIASES);
+      return { status: 'success', created: false, newStock: newStock };
+    }
+
+    appendRowByHeaders_(INVENTORY_SHEET, {
+      sku: sku,
+      itemName: body.itemName || sku,
+      stock: addQty,
+      casePrice: casePrice,
+      unitsInCase: unitsInCase,
+      sellingPrice: sellingPrice
+    }, INVENTORY_HEADER_ALIASES);
+    return { status: 'success', created: true, newStock: addQty };
+  });
+}
+
+// Direct edit of an existing row (replaces values outright — unlike
+// handleAddInventoryStock_, this never adds to Stock, it sets it).
+function handleUpdateInventoryItem_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can manage inventory.' };
+
+  const sku = String(body.sku || '').trim();
+  if (!sku) return { status: 'error', message: 'SKU is required.' };
+
+  return withLock_(() => {
+    const dataObj = {};
+    if (body.hasOwnProperty('itemName')) dataObj.itemName = body.itemName;
+    if (body.hasOwnProperty('stock')) dataObj.stock = Number(body.stock) || 0;
+    if (body.hasOwnProperty('casePrice')) dataObj.casePrice = Number(body.casePrice) || 0;
+    if (body.hasOwnProperty('unitsInCase')) dataObj.unitsInCase = Number(body.unitsInCase) || 0;
+    if (body.hasOwnProperty('sellingPrice')) dataObj.sellingPrice = Number(body.sellingPrice) || 0;
+
+    const updated = updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, dataObj, INVENTORY_HEADER_ALIASES);
+    if (!updated) return { status: 'error', message: 'Inventory item not found.' };
+    return { status: 'success' };
+  });
+}
+
+function handleDeleteInventoryItem_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can manage inventory.' };
+
+  const sku = String(body.sku || '').trim();
+  if (!sku) return { status: 'error', message: 'SKU is required.' };
+
+  return withLock_(() => {
+    const deleted = deleteRowByHeaders_(INVENTORY_SHEET, 'SKU', sku);
+    if (!deleted) return { status: 'error', message: 'Inventory item not found.' };
+    return { status: 'success' };
+  });
+}
+
+/* ---------------------------------------------------------------------
  * Draft Orders + Audit Log
  *
  * Agent Hub's "Take Order" / "New Order" flows persist here (in addition
@@ -554,6 +653,18 @@ function doPost(e) {
 
     if (action === 'submitDraftOrder') {
       return json_(handleSubmitDraftOrder_(session, body));
+    }
+
+    if (action === 'addInventoryStock') {
+      return json_(handleAddInventoryStock_(session, body));
+    }
+
+    if (action === 'updateInventoryItem') {
+      return json_(handleUpdateInventoryItem_(session, body));
+    }
+
+    if (action === 'deleteInventoryItem') {
+      return json_(handleDeleteInventoryItem_(session, body));
     }
 
     return json_({ status: 'error', message: 'Unknown action.' });

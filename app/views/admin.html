@@ -14,6 +14,7 @@
             <button class="pill-btn" onclick="switchTab('dayWiseBillsTab')">🖨️ Day-wise Bills</button>
             <button class="pill-btn" onclick="switchTab('draftOrdersTab')">📋 Draft Orders</button>
             <button class="pill-btn" onclick="switchTab('auditLogTab')">🧾 Audit Log</button>
+            <button class="pill-btn" onclick="switchTab('inventoryMgmtTab')">📦 Manage Inventory</button>
         </div>
 
         <!-- TAB 1: CUSTOMERS RANKED -->
@@ -244,6 +245,61 @@
             </p>
             <div id="auditLogList"></div>
         </div>
+
+        <!-- TAB 10: MANAGE INVENTORY (add/restock, edit, remove) -->
+        <div id="inventoryMgmtTab" class="tab-content">
+            <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto 24px auto;">
+                <div class="section-title" style="margin-bottom:6px;">
+                    <span>📦 Add / Restock Inventory Item</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
+                    Search a product, enter what's coming in, and submit. If it's already in Inventory, the Stock you enter is added to what's already there; Case Price, Units in Case, and Selling Price are updated to whatever you enter.
+                </p>
+
+                <div class="form-group">
+                    <label>Search Product:</label>
+                    <div class="custom-suggest-container">
+                        <input type="text" id="invItemSearchInput" class="input-text-standard" placeholder="Type product name, SKU, or keyword..." oninput="handleInventorySearchInput(this)" onfocus="handleInventorySearchInput(this)">
+                        <div id="invItemDropdown" class="custom-suggest-dropdown"></div>
+                    </div>
+                </div>
+
+                <div id="invSelectedItemInfo" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:16px; font-size:0.85rem;"></div>
+
+                <div class="form-row-3">
+                    <div>
+                        <label>Stock (qty to add) *</label>
+                        <input type="number" id="invStockInput" class="input-standard" min="0" placeholder="e.g. 50">
+                    </div>
+                    <div>
+                        <label>Case Price *</label>
+                        <input type="number" id="invCasePriceInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 500" oninput="updateInventoryMarginPreview()">
+                    </div>
+                    <div>
+                        <label>Units in Case *</label>
+                        <input type="number" id="invUnitsInCaseInput" class="input-standard" min="1" placeholder="e.g. 24" oninput="updateInventoryMarginPreview()">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Selling Price (per unit) *</label>
+                    <input type="number" id="invSellingPriceInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 25" oninput="updateInventoryMarginPreview()">
+                </div>
+
+                <div id="invMarginPreview" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:16px; font-size:0.85rem;"></div>
+
+                <button class="btn-submit" onclick="submitInventoryAdd()" style="margin-top:8px; width:100%;">➕ Add to Inventory</button>
+            </div>
+
+            <div class="section-title">
+                <span>📋 Current Inventory</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="invMgmtCount">0 Items</span>
+            </div>
+            <div class="search-box">
+                <input type="text" id="invMgmtSearch" placeholder="Search inventory by name or SKU..." onkeyup="filterInventoryMgmt()">
+            </div>
+            <div id="invMgmtList"></div>
+        </div>
     </div>
 
     <!-- MODAL 1: CUSTOMER ORDERS & SMART RECOMMENDATIONS -->
@@ -351,5 +407,37 @@
             <button class="whatsapp-send-btn" onclick="sendOrderToWhatsApp()">
                 💬 Send Order to WhatsApp
             </button>
+        </div>
+    </div>
+
+    <!-- MODAL 4: EDIT INVENTORY ITEM -->
+    <div class="modal-overlay" id="editInventoryModal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h2 id="editInvItemName">Edit Inventory Item</h2>
+                    <p id="editInvItemSku">SKU</p>
+                </div>
+                <button class="close-btn" onclick="closeModal('editInventoryModal')">✕</button>
+            </div>
+
+            <div class="form-group">
+                <label>Stock</label>
+                <input type="number" id="editInvStock" class="input-text-standard">
+            </div>
+            <div class="form-group">
+                <label>Case Price</label>
+                <input type="number" id="editInvCasePrice" class="input-text-standard" step="0.01">
+            </div>
+            <div class="form-group">
+                <label>Units in Case</label>
+                <input type="number" id="editInvUnitsInCase" class="input-text-standard">
+            </div>
+            <div class="form-group">
+                <label>Selling Price</label>
+                <input type="number" id="editInvSellingPrice" class="input-text-standard" step="0.01">
+            </div>
+
+            <button class="btn-submit" onclick="saveInventoryItemEdit()" style="width:100%;">💾 Save Changes</button>
         </div>
     </div>
