@@ -71,7 +71,16 @@
             .forEach(k => localStorage.removeItem(k));
     }
 
-    async function call(payload) {
+    // Apps Script Web Apps have real concurrency/cold-start limits — under
+    // load a request can fail outright (fetch throws) or come back as an
+    // HTML error page instead of JSON (res.json() throws). Read-only
+    // actions are safe to silently retry a couple of times with backoff;
+    // writes are NOT retried here since a lost response doesn't mean the
+    // write didn't happen server-side — blindly retrying could double it.
+    const RETRYABLE_ACTIONS = new Set(['getSheet', 'getSheets', 'getDraftOrders', 'getAgentList']);
+    const RETRY_DELAYS_MS = [500, 1500];
+
+    async function callOnce(payload) {
         const res = await fetch(WEB_APP_URL, {
             method: 'POST',
             mode: 'cors',
@@ -83,6 +92,25 @@
             clearSession();
         }
         return data;
+    }
+
+    async function call(payload) {
+        if (!RETRYABLE_ACTIONS.has(payload.action)) {
+            return callOnce(payload);
+        }
+
+        let lastErr;
+        for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+            try {
+                return await callOnce(payload);
+            } catch (err) {
+                lastErr = err;
+                if (attempt < RETRY_DELAYS_MS.length) {
+                    await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+                }
+            }
+        }
+        throw lastErr;
     }
 
     async function login(username, password) {
@@ -137,6 +165,10 @@
             throw new Error((data && data.message) || 'Failed to load sheet data');
         }
         writeCache(cacheKey, data.data || {});
+        // Also populate each sheet's own single-sheet cache entry, so a
+        // later plain getSheet(name) call (e.g. a one-off refresh) can
+        // reuse this batch instead of re-fetching it alone.
+        Object.keys(data.data || {}).forEach(name => writeCache('sheet:' + name, data.data[name]));
         return data.data || {};
     }
 

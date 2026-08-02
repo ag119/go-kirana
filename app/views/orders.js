@@ -174,15 +174,15 @@
     // used by the shell's Refresh button and after submitting a new order.
     async function fetchLiveData(force) {
         try {
-            const [cust, ord, prods] = await Promise.all([
-                GK.api.getSheet('Customers', { force }),
-                GK.api.getSheet('Orders', { force }),
-                GK.api.getSheet('Products', { force })
-            ]);
+            // One batched request instead of 3 separate ones — each doPost
+            // independently reopens the spreadsheet, and Apps Script has
+            // real concurrency limits, so firing several at once was the
+            // main source of "connection error, works on retry".
+            const sheets = await GK.api.getSheets(['Customers', 'Orders', 'Products'], { force });
 
-            rawCustomers = cust;
-            rawOrders = ord;
-            rawProducts = prods;
+            rawCustomers = sheets['Customers'] || [];
+            rawOrders = sheets['Orders'] || [];
+            rawProducts = sheets['Products'] || [];
 
             const custDatalist = document.getElementById('customerDatalist');
             custDatalist.innerHTML = rawCustomers.map(c => {

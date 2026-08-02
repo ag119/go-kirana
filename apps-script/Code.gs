@@ -26,6 +26,19 @@
 const SHEET_ID = '1WNX0PqbLSDJ11ps2cuZaeYQC-w87KM5uUt5acPjJahI';
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // session length: 30 days — the app has its own Logout button, so no need to force re-login sooner
 
+// SpreadsheetApp.openById() is one of the more expensive Apps Script calls
+// (it re-resolves the whole spreadsheet binding). A single doPost — e.g.
+// the 'getSheets' batch action, or submitDraftOrder which touches Draft
+// Orders + Orders + Order Details + Inventory in one request — used to
+// call it once per sheet touched. Since each doPost runs in its own
+// isolated execution (no cross-request state), memoizing it here per
+// execution is safe and turns N opens into 1.
+let _ss = null;
+function getSpreadsheet_() {
+  if (!_ss) _ss = SpreadsheetApp.openById(SHEET_ID);
+  return _ss;
+}
+
 /* ---------------------------------------------------------------------
  * Session tokens: stateless, HMAC-signed (no extra "Sessions" sheet needed)
  * ------------------------------------------------------------------- */
@@ -81,7 +94,7 @@ function normalizeHeader_(h) {
 }
 
 function sheetToRows_(sheetName) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheetName);
+  const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) return [];
   const values = sheet.getDataRange().getValues();
   if (values.length < 1) return [];
@@ -99,7 +112,7 @@ function sheetToRows_(sheetName) {
 // actual header row via ALIASES. Any header with no matching alias is left
 // blank rather than guessed — safer than risking a misaligned write.
 function appendRowByHeaders_(sheetName, dataObj, aliasMap) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheetName);
+  const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
 
   const lastCol = sheet.getLastColumn();
@@ -123,7 +136,7 @@ function appendRowByHeaders_(sheetName, dataObj, aliasMap) {
 // features (Draft Orders, Audit Log) whose sheet tabs are auto-provisioned
 // on first write rather than requiring manual spreadsheet setup.
 function ensureSheetExists_(name, headers) {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
@@ -157,7 +170,7 @@ function findRowIndexByValue_(sheet, columnName, value) {
 // "blank it out", since this is a partial update, not a fresh append.
 // Returns true if a row was found and updated, false otherwise.
 function updateRowByHeaders_(sheetName, matchColumn, matchValue, dataObj, aliasMap) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheetName);
+  const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
 
   const rowIdx = findRowIndexByValue_(sheet, matchColumn, matchValue);
@@ -185,7 +198,7 @@ function updateRowByHeaders_(sheetName, matchColumn, matchValue, dataObj, aliasM
 // Deletes the row where `matchColumn` === `matchValue`. Returns true if a
 // row was found and deleted, false otherwise.
 function deleteRowByHeaders_(sheetName, matchColumn, matchValue) {
-  const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(sheetName);
+  const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
 
   const rowIdx = findRowIndexByValue_(sheet, matchColumn, matchValue);
@@ -321,7 +334,7 @@ function decrementInventoryStock_(items) {
   if (!items || !items.length) return;
 
   withLock_(() => {
-    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(INVENTORY_SHEET);
+    const sheet = getSpreadsheet_().getSheetByName(INVENTORY_SHEET);
     if (!sheet) return;
 
     const lastCol = sheet.getLastColumn();

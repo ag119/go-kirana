@@ -60,27 +60,29 @@
         try {
             await loadChartJs();
 
-            const [cust, ord, items, prods, drafts, auditLog, inventory] = await Promise.all([
-                GK.api.getSheet('Customers', { force }),
-                GK.api.getSheet('Orders', { force }),
-                GK.api.getSheet('Order Details', { force }),
-                GK.api.getSheet('Products', { force }),
-                GK.api.getDraftOrders(),
-                GK.api.getSheet('Audit Log', { force }),
-                GK.api.getSheet('Inventory', { force })
+            // One batched request for all sheet tabs instead of N separate
+            // ones — each doPost independently reopens the spreadsheet and
+            // Apps Script has real concurrency limits, so firing many at
+            // once was the main source of "connection error, works on
+            // retry". getDraftOrders() stays separate since it has its own
+            // (never-cached, per-user-filtered) semantics.
+            const [sheets, drafts] = await Promise.all([
+                GK.api.getSheets(['Customers', 'Orders', 'Order Details', 'Products', 'Audit Log', 'Inventory'], { force }),
+                GK.api.getDraftOrders()
             ]);
 
-            rawCustomers = cust;
-            rawOrders = ord;
-            rawOrderItems = items;
-            rawProducts = prods;
+            rawCustomers = sheets['Customers'] || [];
+            rawOrders = sheets['Orders'] || [];
+            rawOrderItems = sheets['Order Details'] || [];
+            rawProducts = sheets['Products'] || [];
             draftOrders = drafts;
-            rawInventory = inventory;
+            const auditLog = sheets['Audit Log'] || [];
+            rawInventory = sheets['Inventory'] || [];
 
             productMapBySKU = {};
             productMapByNameAndPrice = {};
 
-            prods.forEach(p => {
+            rawProducts.forEach(p => {
                 const sku = (p['SKU'] || '').trim();
                 const name = p['Item Name'] || p['Standard Name'] || sku;
                 const price = parseFloat(p['Price per Unit'] || 0);
