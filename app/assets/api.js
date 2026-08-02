@@ -203,6 +203,28 @@
         return data;
     }
 
+    async function reassignDraftOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'reassignDraftOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to reassign order.');
+        }
+        clearCache();
+        return data;
+    }
+
+    // Not cached — the agent list is tiny and this keeps the "Assign To"
+    // picker simple; never includes passwords (unlike a raw
+    // getSheet('AgentCreds') would), see handleGetAgentList_ in Code.gs.
+    async function getAgentList() {
+        const token = requireToken();
+        const data = await call({ action: 'getAgentList', token });
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to load agent list.');
+        }
+        return data.agents || [];
+    }
+
     async function addInventoryStock(payload) {
         const token = requireToken();
         const data = await call(Object.assign({ action: 'addInventoryStock', token }, payload));
@@ -245,6 +267,8 @@
         updateDraftOrder,
         deleteDraftOrder,
         submitDraftOrder,
+        reassignDraftOrder,
+        getAgentList,
         addInventoryStock,
         updateInventoryItem,
         deleteInventoryItem,

@@ -29,6 +29,7 @@
     let draftOrders = [];
     let activeDraftOrderId = null;
     let rawInventory = [];
+    let assigningDraftOrderId = null;
 
     // --- DATA FETCHING (via Apps Script proxy — no sheet ID/gviz here) ---
     // force=true bypasses the shared localStorage cache (see app/assets/api.js) —
@@ -585,6 +586,7 @@
         cartItems = [];
         activeDraftOrderId = null;
         document.getElementById('orderFormCustMeta').innerText = `${custName} (📱 +91 ${mobile})`;
+        document.getElementById('saveOrderFormEditBtn').style.display = 'none';
         renderCart();
         document.getElementById('orderFormModal').classList.add('active');
     }
@@ -698,19 +700,44 @@
         const waUrl = `https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(message)}`;
         window.open(waUrl, '_blank');
 
-        await persistDraftOrder({
+        const ok = await persistDraftOrder({
             customerId: activeOrderCustomer.custId,
             customerName: activeOrderCustomer.custName,
             customerMobile: activeOrderCustomer.mobile,
             items: cartItems
         });
+        if (!ok) {
+            alert('⚠️ WhatsApp message sent, but saving to Pending Orders failed. Please retry or let admin know.');
+        }
     }
 
-    // Saves the just-submitted order to the shared Draft Orders sheet so it
-    // shows up in Pending/Draft Orders for admin — a *separate* step from
-    // the WhatsApp send above, and deliberately non-blocking on failure
-    // (WhatsApp has already opened regardless; the agent just gets a
-    // distinct warning to retry/tell admin manually).
+    // Saves the currently-open pending order's changes without opening
+    // WhatsApp — only shown (see editPendingOrder) while actively editing
+    // an existing draft, i.e. activeDraftOrderId is already set.
+    async function saveOrderFormEdit() {
+        if (!activeOrderCustomer || !cartItems.length) {
+            alert('Please add at least one item to the order.');
+            return;
+        }
+        const ok = await persistDraftOrder({
+            customerId: activeOrderCustomer.custId,
+            customerName: activeOrderCustomer.custName,
+            customerMobile: activeOrderCustomer.mobile,
+            items: cartItems
+        });
+        if (ok) {
+            closeModal('orderFormModal');
+        } else {
+            alert('⚠️ Failed to save changes. Please try again.');
+        }
+    }
+
+    // Creates/updates the shared Draft Orders row for the current cart —
+    // used both after a WhatsApp send (where failure here is non-blocking,
+    // since WhatsApp already opened) and by the "Save Changes" buttons
+    // (where failure must NOT be treated as success, so the caller can
+    // decide what to do next). Returns true/false rather than alerting
+    // itself, since the right failure message differs by caller.
     async function persistDraftOrder(payload) {
         try {
             if (activeDraftOrderId) {
@@ -721,9 +748,10 @@
             activeDraftOrderId = null;
             draftOrders = await GK.api.getDraftOrders();
             renderPendingOrdersTab();
+            return true;
         } catch (err) {
             console.error(err);
-            alert('⚠️ WhatsApp message sent, but saving to Pending Orders failed: ' + (err.message || 'Unknown error') + '. Please retry or let admin know.');
+            return false;
         }
     }
 
@@ -819,12 +847,44 @@
         const waUrl = `https://wa.me/${WHATSAPP_NUM}?text=${encodeURIComponent(message)}`;
         window.open(waUrl, '_blank');
 
-        await persistDraftOrder({
+        const ok = await persistDraftOrder({
             customerId: '',
             customerName: name,
             customerMobile: mobile,
             items: newOrderCartItems
         });
+        if (!ok) {
+            alert('⚠️ WhatsApp message sent, but saving to Pending Orders failed. Please retry or let admin know.');
+        }
+    }
+
+    // Saves the currently-open pending order's changes without opening
+    // WhatsApp — only shown (see editPendingOrder) while actively editing
+    // an existing draft, i.e. activeDraftOrderId is already set.
+    async function saveNewOrderEdit() {
+        const name = document.getElementById('newCustName').value.trim();
+        const mobile = document.getElementById('newCustMobile').value.trim();
+        if (!name) { alert('Please enter the Shopkeeper Name.'); document.getElementById('newCustName').focus(); return; }
+        if (!mobile) { alert('Please enter the Mobile Number.'); document.getElementById('newCustMobile').focus(); return; }
+        if (!newOrderCartItems.length) { alert('Please add at least one item to the cart.'); return; }
+
+        const ok = await persistDraftOrder({
+            customerId: '',
+            customerName: name,
+            customerMobile: mobile,
+            items: newOrderCartItems
+        });
+
+        if (ok) {
+            newOrderCartItems = [];
+            document.getElementById('newCustName').value = '';
+            document.getElementById('newCustMobile').value = '';
+            document.getElementById('saveNewOrderEditBtn').style.display = 'none';
+            renderNewOrderCart();
+            switchTab('pendingOrdersTab');
+        } else {
+            alert('⚠️ Failed to save changes. Please try again.');
+        }
     }
 
     // Nav pill / home card entry point for a brand-new "New Order" — resets
@@ -835,6 +895,7 @@
         newOrderCartItems = [];
         document.getElementById('newCustName').value = '';
         document.getElementById('newCustMobile').value = '';
+        document.getElementById('saveNewOrderEditBtn').style.display = 'none';
         renderNewOrderCart();
         switchTab('newOrderTab');
     }
@@ -879,7 +940,8 @@
                         <div class="item-meta">Qty: ${i.qty}${i.unitPrice != null ? ` • ₹${Number(i.unitPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : ' • Price N/A'}</div>
                     </div>`).join('')}
                 </div>
-                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end;">
+                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+                    <button class="btn-analytics" onclick="openAssignAgentModal('${id}')">🔀 Assign</button>
                     <button class="btn-analytics" onclick="editPendingOrder('${id}')">✏️ Edit</button>
                     <button class="btn-analytics" style="color:#ef4444;" onclick="deletePendingOrder('${id}')">🗑️ Delete</button>
                 </div>
@@ -890,6 +952,49 @@
     async function refreshPendingOrders() {
         draftOrders = await GK.api.getDraftOrders();
         renderPendingOrdersTab();
+    }
+
+    // --- ASSIGN TO ANOTHER AGENT --------------------------------------------
+    // Reassigns ownership (CreatedBy) of a pending order to a different
+    // agent, so it disappears from this agent's Pending Orders and shows up
+    // in the new owner's instead. Operates on an explicit id (not
+    // activeDraftOrderId) since it's triggered directly from the card list,
+    // without needing to open the order for editing first.
+    async function openAssignAgentModal(id) {
+        assigningDraftOrderId = id;
+        const select = document.getElementById('assignAgentSelect');
+        select.innerHTML = '<option value="">Loading agents…</option>';
+        document.getElementById('assignAgentModal').classList.add('active');
+
+        try {
+            const agents = await GK.api.getAgentList();
+            const currentUser = (GK.api.currentUser() || '').toLowerCase();
+            const options = agents
+                .filter(a => a.role === 'agent' && a.username.toLowerCase() !== currentUser)
+                .map(a => `<option value="${a.username}">${a.username}</option>`)
+                .join('');
+            select.innerHTML = '<option value="">— Choose an agent —</option>' + options;
+        } catch (err) {
+            select.innerHTML = '<option value="">Failed to load agents</option>';
+            alert('⚠️ ' + (err.message || 'Failed to load agent list.'));
+        }
+    }
+
+    async function confirmAssignAgent() {
+        const chosen = document.getElementById('assignAgentSelect').value;
+        if (!chosen || !assigningDraftOrderId) {
+            alert('Please choose an agent.');
+            return;
+        }
+
+        try {
+            await GK.api.reassignDraftOrder({ id: assigningDraftOrderId, assignTo: chosen });
+            closeModal('assignAgentModal');
+            assigningDraftOrderId = null;
+            await refreshPendingOrders();
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to reassign.'));
+        }
     }
 
     async function updateDraftOrderStatus(id, status) {
@@ -920,12 +1025,18 @@
             activeOrderCustomer = { custId: draft['CustomerId'], custName: draft['CustomerName'], mobile: draft['CustomerMobile'] };
             cartItems = normalizedItems;
             document.getElementById('orderFormCustMeta').innerText = `${draft['CustomerName']} (📱 +91 ${draft['CustomerMobile'] || ''})`;
+            document.getElementById('saveOrderFormEditBtn').style.display = 'block';
             renderCart();
             document.getElementById('orderFormModal').classList.add('active');
         } else {
+            // Not the orderFormModal flow — clear any stale customer from a
+            // previous Take Order session so a later save/send can't
+            // mistakenly branch into that path with the wrong customer.
+            activeOrderCustomer = null;
             newOrderCartItems = normalizedItems;
             document.getElementById('newCustName').value = draft['CustomerName'] || '';
             document.getElementById('newCustMobile').value = draft['CustomerMobile'] || '';
+            document.getElementById('saveNewOrderEditBtn').style.display = 'block';
             renderNewOrderCart();
             switchTab('newOrderTab');
         }
@@ -1347,6 +1458,10 @@
         editPendingOrder,
         deletePendingOrder,
         openShoppingListModal,
+        saveOrderFormEdit,
+        saveNewOrderEdit,
+        openAssignAgentModal,
+        confirmAssignAgent,
         toggleOrderItems,
         closeModal,
         viewOrderBill

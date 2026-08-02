@@ -232,6 +232,21 @@ function handleLogin_(body) {
   return { status: 'success', token: token, role: role, expiresAt: expiresAt };
 }
 
+// Returns just usernames + roles from AgentCreds — deliberately never the
+// Password column, unlike a raw getSheet('AgentCreds') would. Used to
+// populate the "Assign To" agent picker for any authenticated user (agents
+// need to see fellow agents to reassign to, not just admin).
+function handleGetAgentList_() {
+  const users = sheetToRows_('AgentCreds');
+  const agents = users
+    .map(u => ({
+      username: String(u['Username'] || u['username'] || '').trim(),
+      role: String(u['Role'] || u['role'] || '').trim().toLowerCase() === 'admin' ? 'admin' : 'agent'
+    }))
+    .filter(u => u.username);
+  return { status: 'success', agents: agents };
+}
+
 // Field names in the ORDER item payload sent by app/views/orders.js:
 //   sku, quantity, unitPrice, actualPrice, calculatedTotal, actualCost
 //
@@ -566,6 +581,37 @@ function handleDeleteDraftOrder_(session, body) {
   });
 }
 
+// Reassigns ownership (CreatedBy) of a draft order to a different agent, so
+// it disappears from the current owner's Pending Orders and shows up in
+// the new owner's. Same ownership rule as update/delete — admin or the
+// current owner only. The target username is validated against AgentCreds
+// first (outside the lock, cheap early-exit) so a typo can't silently
+// strand an order under a username nobody can ever log in as.
+function handleReassignDraftOrder_(session, body) {
+  const newOwner = String(body.assignTo || '').trim();
+  if (!newOwner) return { status: 'error', message: 'Missing agent to assign to.' };
+
+  const users = sheetToRows_('AgentCreds');
+  const match = users.find(u => String(u['Username'] || u['username'] || '').trim().toLowerCase() === newOwner.toLowerCase());
+  if (!match) return { status: 'error', message: 'That username was not found.' };
+  const canonicalUsername = String(match['Username'] || match['username']).trim();
+
+  return withLock_(() => {
+    const existing = getDraftOrderById_(body.id);
+    if (!existing) return { status: 'error', message: 'Draft order not found. It may have already been submitted or deleted.' };
+    if (!isOwnerOrAdmin_(session, existing)) return { status: 'error', message: 'You can only reassign your own orders.' };
+
+    updateRowByHeaders_(DRAFT_ORDERS_SHEET, 'Id', body.id, {
+      createdBy: canonicalUsername,
+      updatedBy: session.u,
+      updatedAt: new Date()
+    }, DRAFT_ORDER_HEADER_ALIASES);
+
+    logAudit_(session, 'reassign', body.id, `Reassigned from ${existing['CreatedBy']} to ${canonicalUsername}`);
+    return { status: 'success' };
+  });
+}
+
 // Admin-only: converts a Draft Orders row into a real Order (reusing
 // handleCreateOrder_ unmodified — the extra `id` key is simply ignored by
 // its alias maps) and removes the draft row on success. If
@@ -653,6 +699,14 @@ function doPost(e) {
 
     if (action === 'submitDraftOrder') {
       return json_(handleSubmitDraftOrder_(session, body));
+    }
+
+    if (action === 'reassignDraftOrder') {
+      return json_(handleReassignDraftOrder_(session, body));
+    }
+
+    if (action === 'getAgentList') {
+      return json_(handleGetAgentList_());
     }
 
     if (action === 'addInventoryStock') {
