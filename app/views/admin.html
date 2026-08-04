@@ -257,7 +257,7 @@
                     <span>📦 Add / Restock Inventory Item</span>
                 </div>
                 <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
-                    Search a product, enter what's coming in, and submit. If it's already in Inventory, the Stock you enter is added to what's already there; Case Price, Units in Case, and Selling Price are updated to whatever you enter.
+                    Search a product, enter what's coming in, and add it to the list below — build up as many items as you like, then submit them all in one go. If an item's already in Inventory, the Stock you enter is added to what's already there; Case Price, Units in Case, and Selling Price are updated to whatever you enter.
                 </p>
 
                 <div class="form-group">
@@ -292,7 +292,16 @@
 
                 <div id="invMarginPreview" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:16px; font-size:0.85rem;"></div>
 
-                <button class="btn-submit" onclick="submitInventoryAdd()" style="margin-top:8px; width:100%;">➕ Add to Inventory</button>
+                <button class="btn-submit" onclick="addInventoryQueueItem()" style="margin-top:8px; width:100%;">➕ Add to List</button>
+
+                <div style="margin-top:24px; padding-top:20px; border-top:1px dashed var(--border);">
+                    <div class="section-title" style="font-size:0.95rem; margin-bottom:10px;">
+                        <span>🧾 Items to Add</span>
+                        <span style="font-size:0.8rem; color:var(--text-muted);" id="invQueueCount">0 Items</span>
+                    </div>
+                    <div id="invQueueList" style="margin-bottom:16px;"><p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p></div>
+                    <button class="whatsapp-send-btn" id="invQueueSubmitBtn" onclick="submitInventoryQueue()" disabled>🚀 Add All to Inventory</button>
+                </div>
             </div>
 
             <div class="section-title">

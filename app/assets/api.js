@@ -267,6 +267,16 @@
         return data;
     }
 
+    async function bulkAddInventoryStock(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'bulkAddInventoryStock', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to submit inventory list.');
+        }
+        clearCache();
+        return data;
+    }
+
     async function updateInventoryItem(payload) {
         const token = requireToken();
         const data = await call(Object.assign({ action: 'updateInventoryItem', token }, payload));
@@ -302,6 +312,7 @@
         reassignDraftOrder,
         getAgentList,
         addInventoryStock,
+        bulkAddInventoryStock,
         updateInventoryItem,
         deleteInventoryItem,
         isLoggedIn: () => !!getSession(),

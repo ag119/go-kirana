@@ -380,44 +380,70 @@ function getInventoryRowBySku_(sku) {
   return rows.find(r => String(r['SKU'] || '').trim() === String(sku).trim()) || null;
 }
 
-// Add / restock: if the SKU already has an Inventory row, the given Stock
-// is ADDED to whatever is already there (Case Price / Units in case /
-// Selling Price are replaced with the freshly-entered values, since a
-// restock is exactly when those legitimately change). If the SKU isn't
-// present yet, a new row is created.
+// Add / restock ONE item: if the SKU already has an Inventory row, the
+// given Stock is ADDED to whatever is already there (Case Price / Units in
+// case / Selling Price are replaced with the freshly-entered values, since
+// a restock is exactly when those legitimately change). If the SKU isn't
+// present yet, a new row is created. No role check / locking here — callers
+// (handleAddInventoryStock_, handleBulkAddInventoryStock_) wrap those
+// around it, the latter around a whole batch rather than per item.
+function addOrRestockInventoryItem_(item) {
+  const sku = String(item.sku || '').trim();
+  if (!sku) return { sku: '', status: 'error', message: 'Missing SKU.' };
+
+  const existing = getInventoryRowBySku_(sku);
+  const casePrice = Number(item.casePrice) || 0;
+  const unitsInCase = Number(item.unitsInCase) || 0;
+  const sellingPrice = Number(item.sellingPrice) || 0;
+  const addQty = Number(item.stock) || 0;
+
+  if (existing) {
+    const newStock = (Number(existing['Stock']) || 0) + addQty;
+    updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, {
+      stock: newStock,
+      casePrice: casePrice,
+      unitsInCase: unitsInCase,
+      sellingPrice: sellingPrice
+    }, INVENTORY_HEADER_ALIASES);
+    return { sku: sku, status: 'success', created: false, newStock: newStock };
+  }
+
+  appendRowByHeaders_(INVENTORY_SHEET, {
+    sku: sku,
+    itemName: item.itemName || sku,
+    stock: addQty,
+    casePrice: casePrice,
+    unitsInCase: unitsInCase,
+    sellingPrice: sellingPrice
+  }, INVENTORY_HEADER_ALIASES);
+  return { sku: sku, status: 'success', created: true, newStock: addQty };
+}
+
 function handleAddInventoryStock_(session, body) {
   if (session.role !== 'admin') return { status: 'error', message: 'Only admin can manage inventory.' };
 
   const sku = String(body.sku || '').trim();
   if (!sku) return { status: 'error', message: 'SKU is required.' };
 
+  return withLock_(() => addOrRestockInventoryItem_(body));
+}
+
+// Same as handleAddInventoryStock_ but for a whole batch in ONE request —
+// one lock acquisition, one spreadsheet open, looping in-process — instead
+// of the client firing one request per item (which would recreate the
+// "many simultaneous Apps Script requests" reliability problem fixed
+// elsewhere in this app). Items are processed in array order within the
+// same execution, so if the same SKU appears twice in one batch, the
+// second entry correctly sees the first entry's already-updated stock.
+function handleBulkAddInventoryStock_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can manage inventory.' };
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) return { status: 'error', message: 'No items provided.' };
+
   return withLock_(() => {
-    const existing = getInventoryRowBySku_(sku);
-    const casePrice = Number(body.casePrice) || 0;
-    const unitsInCase = Number(body.unitsInCase) || 0;
-    const sellingPrice = Number(body.sellingPrice) || 0;
-    const addQty = Number(body.stock) || 0;
-
-    if (existing) {
-      const newStock = (Number(existing['Stock']) || 0) + addQty;
-      updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, {
-        stock: newStock,
-        casePrice: casePrice,
-        unitsInCase: unitsInCase,
-        sellingPrice: sellingPrice
-      }, INVENTORY_HEADER_ALIASES);
-      return { status: 'success', created: false, newStock: newStock };
-    }
-
-    appendRowByHeaders_(INVENTORY_SHEET, {
-      sku: sku,
-      itemName: body.itemName || sku,
-      stock: addQty,
-      casePrice: casePrice,
-      unitsInCase: unitsInCase,
-      sellingPrice: sellingPrice
-    }, INVENTORY_HEADER_ALIASES);
-    return { status: 'success', created: true, newStock: addQty };
+    const results = items.map(item => addOrRestockInventoryItem_(item));
+    return { status: 'success', results: results };
   });
 }
 
@@ -724,6 +750,10 @@ function doPost(e) {
 
     if (action === 'addInventoryStock') {
       return json_(handleAddInventoryStock_(session, body));
+    }
+
+    if (action === 'bulkAddInventoryStock') {
+      return json_(handleBulkAddInventoryStock_(session, body));
     }
 
     if (action === 'updateInventoryItem') {

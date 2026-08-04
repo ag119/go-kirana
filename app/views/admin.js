@@ -35,6 +35,7 @@
     let invSelectedSku = null;
     let invSelectedName = null;
     let editingInventorySku = null;
+    let bulkInventoryQueue = [];
 
     function loadChartJs() {
         if (window.Chart) return Promise.resolve();
@@ -1229,7 +1230,11 @@
         box.style.display = 'block';
     }
 
-    async function submitInventoryAdd() {
+    // Adds the currently-filled item to the local queue rather than
+    // submitting immediately — lets admin build up a whole restock batch
+    // (search, fill, add, repeat) before sending it all in one request via
+    // submitInventoryQueue(), instead of one round trip per item.
+    function addInventoryQueueItem() {
         if (!invSelectedSku) { alert('Please search and select a product first.'); return; }
 
         const stock = parseFloat(document.getElementById('invStockInput').value);
@@ -1242,29 +1247,86 @@
         if (!(unitsInCase > 0)) { alert('Please enter valid Units in Case.'); return; }
         if (isNaN(sellingPrice) || sellingPrice < 0) { alert('Please enter a valid Selling Price.'); return; }
 
+        bulkInventoryQueue.push({
+            sku: invSelectedSku,
+            itemName: invSelectedName,
+            stock: stock,
+            casePrice: casePrice,
+            unitsInCase: unitsInCase,
+            sellingPrice: sellingPrice
+        });
+
+        document.getElementById('invItemSearchInput').value = '';
+        document.getElementById('invStockInput').value = '';
+        document.getElementById('invCasePriceInput').value = '';
+        document.getElementById('invUnitsInCaseInput').value = '';
+        document.getElementById('invSellingPriceInput').value = '';
+        document.getElementById('invSelectedItemInfo').style.display = 'none';
+        document.getElementById('invMarginPreview').style.display = 'none';
+        invSelectedSku = null;
+        invSelectedName = null;
+
+        renderInventoryQueue();
+        document.getElementById('invItemSearchInput').focus();
+    }
+
+    function renderInventoryQueue() {
+        const container = document.getElementById('invQueueList');
+        const countEl = document.getElementById('invQueueCount');
+        const submitBtn = document.getElementById('invQueueSubmitBtn');
+        if (!container) return;
+
+        countEl.innerText = `${bulkInventoryQueue.length} Item(s)`;
+        submitBtn.disabled = !bulkInventoryQueue.length;
+
+        if (!bulkInventoryQueue.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>';
+            return;
+        }
+
+        container.innerHTML = bulkInventoryQueue.map((item, idx) => {
+            const existing = rawInventory.find(r => String(r['SKU'] || '').trim() === item.sku);
+            const stockNote = existing
+                ? `+${item.stock} (currently ${toNum(existing['Stock'])} in stock)`
+                : `new item — stock ${item.stock}`;
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                <div>
+                    <strong>${item.itemName}</strong>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">${stockNote} • ₹${item.casePrice}/case (${item.unitsInCase}/case) • sell ₹${item.sellingPrice}</div>
+                </div>
+                <button onclick="removeInventoryQueueItem(${idx})" style="border:none; background:none; color:red; font-weight:bold; cursor:pointer; font-size:1rem;">✕</button>
+            </div>`;
+        }).join('');
+    }
+
+    function removeInventoryQueueItem(idx) {
+        bulkInventoryQueue.splice(idx, 1);
+        renderInventoryQueue();
+    }
+
+    // Submits the whole queue in ONE request (bulkAddInventoryStock) rather
+    // than firing one request per item — avoids recreating the exact
+    // "many simultaneous Apps Script requests" reliability problem that was
+    // just fixed elsewhere in this app.
+    async function submitInventoryQueue() {
+        if (!bulkInventoryQueue.length) return;
+
+        const submitBtn = document.getElementById('invQueueSubmitBtn');
+        const originalLabel = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '⏳ Submitting...';
+
         try {
-            await GK.api.addInventoryStock({
-                sku: invSelectedSku,
-                itemName: invSelectedName,
-                stock: stock,
-                casePrice: casePrice,
-                unitsInCase: unitsInCase,
-                sellingPrice: sellingPrice
-            });
-
-            document.getElementById('invItemSearchInput').value = '';
-            document.getElementById('invStockInput').value = '';
-            document.getElementById('invCasePriceInput').value = '';
-            document.getElementById('invUnitsInCaseInput').value = '';
-            document.getElementById('invSellingPriceInput').value = '';
-            document.getElementById('invSelectedItemInfo').style.display = 'none';
-            document.getElementById('invMarginPreview').style.display = 'none';
-            invSelectedSku = null;
-            invSelectedName = null;
-
+            await GK.api.bulkAddInventoryStock({ items: bulkInventoryQueue });
+            bulkInventoryQueue = [];
+            renderInventoryQueue();
             await refreshInventoryMgmt();
         } catch (err) {
-            alert('⚠️ ' + (err.message || 'Failed to update inventory.'));
+            alert('⚠️ ' + (err.message || 'Failed to submit inventory list.'));
+            submitBtn.disabled = false;
+        } finally {
+            submitBtn.innerHTML = originalLabel;
         }
     }
 
@@ -2066,7 +2128,9 @@
         handleInventorySearchInput,
         selectInventorySearchItem,
         updateInventoryMarginPreview,
-        submitInventoryAdd,
+        addInventoryQueueItem,
+        removeInventoryQueueItem,
+        submitInventoryQueue,
         filterInventoryMgmt,
         editInventoryItem,
         saveInventoryItemEdit,
