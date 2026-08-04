@@ -963,7 +963,7 @@
                         <div class="item-meta">Qty: ${i.qty}${i.unitPrice != null ? ` • ₹${Number(i.unitPrice).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : ' • Price N/A'}</div>
                     </div>`).join('')}
                 </div>
-                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+                <div class="card-actions" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
                     <button class="btn-analytics" onclick="sendDraftOrderToRecordOrder('${id}')">📤 Send to Record Order</button>
                     <button class="btn-analytics" onclick="openAssignAgentModal('${id}')">🔀 Assign</button>
                     <button class="btn-analytics" onclick="editDraftOrderEntry('${id}')">✏️ Edit</button>

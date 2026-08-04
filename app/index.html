@@ -205,6 +205,33 @@
             let referenceY = getY();
             const THRESHOLD = 10; // px of net movement before reacting, avoids jitter
             const TOP_ZONE = 60; // always show near the top of the page
+            const BAR_BAND_PX = 84; // approx bar height + safe-area margin
+
+            // A card can be taller than the whole screen (e.g. an order with
+            // many items) — its own action buttons (Edit/Delete/Assign/...)
+            // can then land exactly where this fixed bar sits, even when the
+            // direction-based logic below would otherwise show it: right
+            // after switching tabs (no scroll has happened yet), or after a
+            // small upward scroll correction while reading. Any element
+            // marked .card-actions currently inside the bar's band vetoes
+            // showing it, regardless of scroll direction.
+            function actionsUnderBar() {
+                const barTop = window.innerHeight - BAR_BAND_PX;
+                const nodes = document.querySelectorAll('.card-actions');
+                for (let i = 0; i < nodes.length; i++) {
+                    const r = nodes[i].getBoundingClientRect();
+                    if (r.bottom > barTop && r.top < window.innerHeight) return true;
+                }
+                return false;
+            }
+
+            function show() {
+                if (actionsUnderBar()) return;
+                bar.classList.remove('bottom-tab-bar--hidden');
+            }
+            function hide() {
+                bar.classList.add('bottom-tab-bar--hidden');
+            }
 
             // referenceY only moves when we actually act on a threshold
             // crossing — NOT on every scroll event — so a run of small
@@ -215,20 +242,35 @@
                 const y = getY();
 
                 if (y <= TOP_ZONE) {
-                    bar.classList.remove('bottom-tab-bar--hidden');
+                    show();
                     referenceY = y;
                     return;
                 }
 
                 const diff = y - referenceY;
                 if (diff > THRESHOLD) {
-                    bar.classList.add('bottom-tab-bar--hidden');
+                    hide();
                     referenceY = y;
                 } else if (diff < -THRESHOLD) {
-                    bar.classList.remove('bottom-tab-bar--hidden');
+                    show();
                     referenceY = y;
+                } else if (actionsUnderBar()) {
+                    // Below the direction threshold, but a card's buttons
+                    // are newly under the bar (e.g. content re-rendered
+                    // mid-scroll) — still worth covering.
+                    hide();
                 }
             }, { passive: true });
+
+            // Re-check whenever the current view's content changes (tab
+            // switch, data refresh, status update, etc.) — a tall card's
+            // buttons can already be under the bar's default-shown position
+            // with no scrolling at all.
+            const root = document.getElementById('view-root');
+            if (root && window.MutationObserver) {
+                new MutationObserver(() => { if (actionsUnderBar()) hide(); })
+                    .observe(root, { childList: true, subtree: true });
+            }
         })();
 
         window.addEventListener('hashchange', () => navigate(currentRouteKey()));
