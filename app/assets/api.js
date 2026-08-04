@@ -151,25 +151,41 @@
         return data.rows || [];
     }
 
-    // Fetch several tabs in one round trip.
+    // Fetch several tabs, checking each one's OWN cache entry first and
+    // only requesting whatever's actually missing/stale from the server —
+    // NOT an all-or-nothing cache keyed by the exact combination of names
+    // requested. Agent Hub, Admin, and Record Order each ask for a
+    // different (overlapping) set of sheets; keying the cache by the full
+    // combined list meant switching between them never hit cache even
+    // though most of the sheets were already fresh, re-fetching everything
+    // on every cross-view navigation. Per-sheet caching means only the
+    // sheet(s) one view needs that another didn't already fetch go over
+    // the network.
     async function getSheets(sheetNames, opts) {
-        const cacheKey = 'sheets:' + sheetNames.slice().sort().join(',');
-        if (!(opts && opts.force)) {
-            const cached = readCache(cacheKey);
-            if (cached) return cached.data;
-        }
+        const force = opts && opts.force;
+        const result = {};
+        const missing = [];
+
+        sheetNames.forEach(name => {
+            if (!force) {
+                const cached = readCache('sheet:' + name);
+                if (cached) { result[name] = cached.data; return; }
+            }
+            missing.push(name);
+        });
+
+        if (!missing.length) return result;
 
         const token = requireToken();
-        const data = await call({ action: 'getSheets', token, sheets: sheetNames });
+        const data = await call({ action: 'getSheets', token, sheets: missing });
         if (!data || data.status !== 'success') {
             throw new Error((data && data.message) || 'Failed to load sheet data');
         }
-        writeCache(cacheKey, data.data || {});
-        // Also populate each sheet's own single-sheet cache entry, so a
-        // later plain getSheet(name) call (e.g. a one-off refresh) can
-        // reuse this batch instead of re-fetching it alone.
-        Object.keys(data.data || {}).forEach(name => writeCache('sheet:' + name, data.data[name]));
-        return data.data || {};
+        Object.keys(data.data || {}).forEach(name => {
+            writeCache('sheet:' + name, data.data[name]);
+            result[name] = data.data[name];
+        });
+        return result;
     }
 
     async function createOrder(payload) {
