@@ -164,9 +164,15 @@
         let dayOrders = 0, daySales = 0, dayProfit = 0;
         let monthOrders = 0, monthSales = 0, monthProfit = 0;
 
-        const now = new Date();
-        const todayStr = now.toISOString().substring(0, 10);
-        const thisMonthStr = now.toISOString().substring(0, 7);
+        // "Today"/"this month" must be read in IST, same as normalizeSheetDate
+        // applies to every Order Date below — Date.now() in the browser is
+        // UTC, and IST is 5.5 hours ahead, so a naive UTC "today" reads as
+        // yesterday for the first ~5.5 hours of every IST day (and at month
+        // boundaries, as the wrong month too).
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+        const todayStr = nowIST.toISOString().substring(0, 10);
+        const thisMonthStr = nowIST.toISOString().substring(0, 7);
 
         rawOrders.forEach(o => {
             const bill = parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || '0').replace(/[^0-9.-]+/g,"")) || 0;
@@ -175,7 +181,10 @@
             totalRevenue += bill;
             totalProfit += profit;
 
-            const dateStr = String(o['Order Date'] || '');
+            // normalizeSheetDate applies the same IST correction — the raw
+            // Order Date cell serializes as a UTC ISO timestamp, which
+            // shifts the calendar date back a day without it.
+            const dateStr = normalizeSheetDate(o['Order Date']);
             if (dateStr.length >= 7) {
                 const m = dateStr.substring(0, 7);
                 monthlySales[m] = (monthlySales[m] || 0) + bill;
@@ -186,7 +195,7 @@
                     monthProfit += profit;
                 }
             }
-            if (dateStr.length >= 10 && dateStr.substring(0, 10) === todayStr) {
+            if (dateStr === todayStr) {
                 dayOrders++;
                 daySales += bill;
                 dayProfit += profit;
