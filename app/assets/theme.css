@@ -811,6 +811,33 @@ a { color: inherit; }
     .price-card-actions { width: 100%; justify-content: space-between; margin-top: 6px; }
 }
 
+/* ---------- Manage Inventory: table on wide screens, cards on phone ----------
+   A 9-column table needs horizontal scrolling on a phone, which is hard to
+   read — .inv-card-view carries the same data as one card per item instead.
+   Both are rendered together; CSS alone decides which is visible, so there's
+   no resize-triggered re-render. */
+.inv-card-view { display: none; }
+@media (max-width: 640px) {
+    .inv-table-view { display: none; }
+    .inv-card-view { display: flex; flex-direction: column; gap: 10px; }
+}
+
+.inv-item-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+}
+.inv-item-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.inv-item-card-name { font-size: 0.95rem; font-weight: 700; color: var(--text-main); line-height: 1.3; }
+.inv-item-card-sku { font-size: 0.7rem; color: var(--text-muted); font-family: monospace; margin-top: 2px; }
+.inv-item-card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 12px; margin-bottom: 12px; }
+.inv-item-card-grid > div { display: flex; flex-direction: column; gap: 2px; }
+.inv-item-card-grid span { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.inv-item-card-grid strong { font-size: 0.88rem; font-weight: 700; color: var(--text-main); }
+.inv-item-card-actions { display: flex; gap: 8px; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--border); }
+
 .qty-controls {
     display: flex;
     align-items: center;

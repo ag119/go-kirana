@@ -78,6 +78,7 @@
             renderCustomersGrid(processedCustomers);
             renderFollowupGrid();
             renderPriceList(rawProducts);
+            renderStockTab(rawInventory);
             renderOrdersStream(rawOrders);
             renderPendingOrdersTab();
 
@@ -449,6 +450,44 @@
             </div>
             `;
         }).join('');
+    }
+
+    // --- STOCK TAB (quick item name + stock lookup, read-only) ---
+    function renderStockTab(rows) {
+        const container = document.getElementById('stockCardsContainer');
+        if (!container) return;
+        document.getElementById('stockItemCount').innerText = `${rows.length} Items`;
+
+        if (!rows.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No inventory items found.</p>';
+            return;
+        }
+
+        const sorted = rows.slice().sort((a, b) => String(a['Item Name'] || '').localeCompare(String(b['Item Name'] || '')));
+
+        container.innerHTML = sorted.map(r => {
+            const stock = Number(r['Stock']) || 0;
+            const badgeStyle = stock < 0 ? 'background:#fee2e2; color:#b91c1c;' : (stock === 0 ? 'background:#fef3c7; color:#92400e;' : '');
+            return `
+            <div class="price-card">
+                <div class="price-card-info">
+                    <div class="price-card-name">${r['Item Name'] || r['SKU'] || 'Item'}</div>
+                </div>
+                <div class="price-card-actions">
+                    <div class="price-card-val" style="${badgeStyle}">${stock}</div>
+                </div>
+            </div>
+            `;
+        }).join('');
+    }
+
+    function filterStockTab() {
+        const q = document.getElementById('stockSearch').value.toLowerCase();
+        const filtered = rawInventory.filter(r =>
+            (r['Item Name'] || '').toLowerCase().includes(q) ||
+            (r['SKU'] || '').toLowerCase().includes(q)
+        );
+        renderStockTab(filtered);
     }
 
     function openCustomerDetails(custId, custName) {
@@ -1442,6 +1481,7 @@
         filterCustomers,
         filterOrders,
         filterPriceList,
+        filterStockTab,
         handlePriceCardTap,
         handleSearchSuggestInput,
         selectSuggestedProduct,

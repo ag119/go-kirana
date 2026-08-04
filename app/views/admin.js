@@ -101,6 +101,7 @@
             renderCustomersGrid(processedCustomers);
             renderFollowupGrid();
             renderPriceList(rawProducts);
+            renderStockTab(rawInventory);
             renderOrdersStream(rawOrders);
             buildInsightIndex();
             renderShopInsightSelect();
@@ -529,6 +530,44 @@
             </div>
             `;
         }).join('');
+    }
+
+    // --- STOCK TAB (quick item name + stock lookup, read-only) ---
+    function renderStockTab(rows) {
+        const container = document.getElementById('stockCardsContainer');
+        if (!container) return;
+        document.getElementById('stockItemCount').innerText = `${rows.length} Items`;
+
+        if (!rows.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No inventory items found.</p>';
+            return;
+        }
+
+        const sorted = rows.slice().sort((a, b) => String(a['Item Name'] || '').localeCompare(String(b['Item Name'] || '')));
+
+        container.innerHTML = sorted.map(r => {
+            const stock = toNum(r['Stock']);
+            const badgeStyle = stock < 0 ? 'background:#fee2e2; color:#b91c1c;' : (stock === 0 ? 'background:#fef3c7; color:#92400e;' : '');
+            return `
+            <div class="price-card">
+                <div class="price-card-info">
+                    <div class="price-card-name">${r['Item Name'] || r['SKU'] || 'Item'}</div>
+                </div>
+                <div class="price-card-actions">
+                    <div class="price-card-val" style="${badgeStyle}">${stock}</div>
+                </div>
+            </div>
+            `;
+        }).join('');
+    }
+
+    function filterStockTab() {
+        const q = document.getElementById('stockSearch').value.toLowerCase();
+        const filtered = rawInventory.filter(r =>
+            (r['Item Name'] || '').toLowerCase().includes(q) ||
+            (r['SKU'] || '').toLowerCase().includes(q)
+        );
+        renderStockTab(filtered);
     }
 
     function openCustomerDetails(custId, custName) {
@@ -1363,8 +1402,11 @@
             return;
         }
 
+        // Rendered twice — a table for wide screens, cards for phone — with
+        // CSS (.inv-table-view / .inv-card-view) deciding which is visible,
+        // so switching doesn't need a resize-triggered re-render.
         container.innerHTML = `
-        <div style="overflow-x:auto;">
+        <div class="inv-table-view" style="overflow-x:auto;">
         <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
             <thead>
                 <tr style="text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); text-transform:uppercase; font-size:0.7rem; letter-spacing:0.04em;">
@@ -1404,6 +1446,35 @@
                 }).join('')}
             </tbody>
         </table>
+        </div>
+        <div class="inv-card-view">
+            ${rows.map(r => {
+                const sku = String(r['SKU'] || '').trim();
+                const stock = toNum(r['Stock']);
+                const unitsInCase = r['Units in case'] ?? r['Units In Case'] ?? '';
+                return `
+                <div class="inv-item-card">
+                    <div class="inv-item-card-header">
+                        <div>
+                            <div class="inv-item-card-name">${r['Item Name'] || ''}</div>
+                            <div class="inv-item-card-sku">${sku}</div>
+                        </div>
+                        <strong style="font-size:1rem; ${stock < 0 ? 'color:#ef4444;' : ''}">${stock}</strong>
+                    </div>
+                    <div class="inv-item-card-grid">
+                        <div><span>Case Price</span><strong>₹${toNum(r['Case Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                        <div><span>Units/Case</span><strong>${unitsInCase}</strong></div>
+                        <div><span>Per Unit</span><strong>₹${toNum(r['Per Unit Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                        <div><span>Selling Price</span><strong>₹${toNum(r['Selling Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                        <div><span>Margin</span><strong>${r['Margin'] !== undefined && r['Margin'] !== '' ? r['Margin'] : '—'}</strong></div>
+                        <div><span>Current Asset</span><strong>₹${toNum(r['Current Asset']).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    </div>
+                    <div class="inv-item-card-actions">
+                        <button class="btn-analytics" onclick="editInventoryItem('${sku.replace(/'/g, "\\'")}')">✏️ Edit</button>
+                        <button class="btn-analytics" style="color:#ef4444;" onclick="deleteInventoryItemPrompt('${sku.replace(/'/g, "\\'")}')">🗑️ Delete</button>
+                    </div>
+                </div>`;
+            }).join('')}
         </div>`;
     }
 
@@ -2105,6 +2176,7 @@
         filterCustomers,
         filterOrders,
         filterPriceList,
+        filterStockTab,
         handlePriceCardTap,
         handleSearchSuggestInput,
         selectSuggestedProduct,

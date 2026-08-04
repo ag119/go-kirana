@@ -8,6 +8,7 @@
             <button class="pill-btn" onclick="switchTab('followupTab')">🚨 Follow Up</button>
             <button class="pill-btn" onclick="startFreshNewOrder()">✨ New Order</button>
             <button class="pill-btn" onclick="switchTab('priceTab')">🏷️ Price List</button>
+            <button class="pill-btn" onclick="switchTab('stockTab')">📦 Stock</button>
             <button class="pill-btn" onclick="switchTab('ordersTab')">📦 Orders Stream</button>
             <button class="pill-btn" onclick="switchTab('pendingOrdersTab')">📋 Pending Orders</button>
         </div>
@@ -88,6 +89,20 @@
             </div>
 
             <div class="price-cards-list" id="priceListCardsContainer"></div>
+        </div>
+
+        <!-- TAB: STOCK (quick item name + stock lookup, read-only) -->
+        <div id="stockTab" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="stockSearch" placeholder="Search item by name or SKU..." onkeyup="filterStockTab()">
+            </div>
+
+            <div class="section-title">
+                <span>Stock</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="stockItemCount">0 Items</span>
+            </div>
+
+            <div class="price-cards-list" id="stockCardsContainer"></div>
         </div>
 
         <!-- TAB 4: NEW ORDER TAB (UNREGISTERED CUSTOMER) -->
