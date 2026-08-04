@@ -202,10 +202,17 @@
 
             const getY = () => window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
 
+            // Real phone browsers dynamically collapse/expand the address
+            // bar while scrolling, which changes how much viewport is
+            // actually visible — window.innerHeight doesn't reliably track
+            // that on every mobile browser, but window.visualViewport does
+            // (it's specifically designed for this). Falls back to
+            // innerHeight on desktop / older browsers where it's absent.
+            const getViewportHeight = () => (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+
             let referenceY = getY();
             const THRESHOLD = 10; // px of net movement before reacting, avoids jitter
             const TOP_ZONE = 60; // always show near the top of the page
-            const BAR_BAND_PX = 84; // approx bar height + safe-area margin
 
             // A card can be taller than the whole screen (e.g. an order with
             // many items) — its own action buttons (Edit/Delete/Assign/...)
@@ -215,12 +222,19 @@
             // small upward scroll correction while reading. Any element
             // marked .card-actions currently inside the bar's band vetoes
             // showing it, regardless of scroll direction.
+            //
+            // The bar's own height is MEASURED (offsetHeight, unaffected by
+            // its hide/show transform) rather than a guessed constant —
+            // safe-area-inset-bottom (notch / home-indicator) varies a lot
+            // by phone model, so a hardcoded pixel estimate can be right on
+            // one device and wrong on another.
             function actionsUnderBar() {
-                const barTop = window.innerHeight - BAR_BAND_PX;
+                const viewportH = getViewportHeight();
+                const barTop = viewportH - bar.offsetHeight;
                 const nodes = document.querySelectorAll('.card-actions');
                 for (let i = 0; i < nodes.length; i++) {
                     const r = nodes[i].getBoundingClientRect();
-                    if (r.bottom > barTop && r.top < window.innerHeight) return true;
+                    if (r.bottom > barTop && r.top < viewportH) return true;
                 }
                 return false;
             }
@@ -270,6 +284,16 @@
             if (root && window.MutationObserver) {
                 new MutationObserver(() => { if (actionsUnderBar()) hide(); })
                     .observe(root, { childList: true, subtree: true });
+            }
+
+            // The address bar collapsing/expanding on a real phone changes
+            // what's actually covered without the page itself scrolling —
+            // visualViewport fires 'resize' for exactly that, independent
+            // of the window-level 'scroll' listener above.
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', () => {
+                    if (actionsUnderBar()) hide();
+                }, { passive: true });
             }
         })();
 
