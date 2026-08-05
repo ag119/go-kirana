@@ -97,6 +97,15 @@
                 <input type="text" id="stockSearch" placeholder="Search item by name or SKU..." onkeyup="filterStockTab()">
             </div>
 
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+                <div style="display:flex; gap:12px; font-size:0.75rem; color:var(--text-muted); flex-wrap:wrap;">
+                    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#10b981; margin-right:4px;"></span>Good</span>
+                    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#f59e0b; margin-right:4px;"></span>Low</span>
+                    <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#ef4444; margin-right:4px;"></span>Out</span>
+                </div>
+                <button id="stockLowFilterBtn" class="btn-analytics" onclick="toggleStockLowFilter()">⚠️ What to Stock</button>
+            </div>
+
             <div class="section-title">
                 <span>Stock</span>
                 <span style="font-size:0.8rem; color:var(--text-muted);" id="stockItemCount">0 Items</span>

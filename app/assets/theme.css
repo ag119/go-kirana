@@ -838,6 +838,21 @@ a { color: inherit; }
 .inv-item-card-grid strong { font-size: 0.88rem; font-weight: 700; color: var(--text-main); }
 .inv-item-card-actions { display: flex; gap: 8px; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--border); }
 
+/* ---------- Shopping List (What to Purchase) — cards, not a table, so it's
+   readable in the modal on a phone without horizontal scrolling. ---------- */
+.shopping-list-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+.shopping-list-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.shopping-list-card-name { font-size: 0.9rem; font-weight: 700; color: var(--text-main); line-height: 1.3; }
+.shopping-list-card-sku { font-size: 0.7rem; color: var(--text-muted); font-family: monospace; margin-top: 2px; }
+.shopping-list-card-purchase { font-size: 1.05rem; font-weight: 800; white-space: nowrap; }
+.shopping-list-card-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 8px; }
+
 .qty-controls {
     display: flex;
     align-items: center;

@@ -101,7 +101,7 @@
             renderCustomersGrid(processedCustomers);
             renderFollowupGrid();
             renderPriceList(rawProducts);
-            renderStockTab(rawInventory);
+            filterStockTab();
             renderOrdersStream(rawOrders);
             buildInsightIndex();
             renderShopInsightSelect();
@@ -533,28 +533,73 @@
     }
 
     // --- STOCK TAB (quick item name + stock lookup, read-only) ---
+    let stockShowLowOnly = false;
+
+    // Combined quantity needed across all currently-visible draft orders
+    // (every agent's, since admin sees them all), by SKU — an item can be
+    // flagged before it hits zero if what's already been requested would
+    // use up more than what's on hand.
+    function buildPendingNeededMap() {
+        const map = {};
+        draftOrders.forEach(draft => {
+            let items = [];
+            try { items = JSON.parse(draft['ItemsJson'] || '[]'); } catch (e) { items = []; }
+            items.forEach(item => {
+                if (!item.sku) return;
+                map[item.sku] = (map[item.sku] || 0) + (Number(item.qty) || 0);
+            });
+        });
+        return map;
+    }
+
+    // 'out' (red): already at/below zero, or pending orders alone need more
+    // than what's on hand. 'low' (amber): positive but at/under one case —
+    // a natural "time to reorder" signal sized to how that item is actually
+    // packed, falling back to a flat 5 units when case size isn't set.
+    // 'good' (green): everything else.
+    function computeStockLevel(row, pendingNeeded) {
+        const sku = String(row['SKU'] || '').trim();
+        const stock = toNum(row['Stock']);
+        const unitsInCase = toNum(row['Units in case'] ?? row['Units In Case']);
+        const needed = sku ? (pendingNeeded[sku] || 0) : 0;
+
+        if (stock <= 0 || stock < needed) return 'out';
+        if (unitsInCase > 0 ? stock <= unitsInCase : stock <= 5) return 'low';
+        return 'good';
+    }
+
     function renderStockTab(rows) {
         const container = document.getElementById('stockCardsContainer');
         if (!container) return;
-        document.getElementById('stockItemCount').innerText = `${rows.length} Items`;
 
-        if (!rows.length) {
-            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No inventory items found.</p>';
+        const pendingNeeded = buildPendingNeededMap();
+        const withLevel = rows.map(r => ({ row: r, level: computeStockLevel(r, pendingNeeded) }));
+        const visible = stockShowLowOnly ? withLevel.filter(x => x.level !== 'good') : withLevel;
+
+        document.getElementById('stockItemCount').innerText = `${visible.length} Items`;
+
+        if (!visible.length) {
+            container.innerHTML = `<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">${stockShowLowOnly ? "Nothing low or out of stock right now. 🎉" : 'No inventory items found.'}</p>`;
             return;
         }
 
-        const sorted = rows.slice().sort((a, b) => String(a['Item Name'] || '').localeCompare(String(b['Item Name'] || '')));
+        const sorted = visible.slice().sort((a, b) => String(a.row['Item Name'] || '').localeCompare(String(b.row['Item Name'] || '')));
+        const levelColors = {
+            good: { border: '#10b981', bg: '#dcfce7', text: '#15803d' },
+            low: { border: '#f59e0b', bg: '#fef3c7', text: '#92400e' },
+            out: { border: '#ef4444', bg: '#fee2e2', text: '#b91c1c' }
+        };
 
-        container.innerHTML = sorted.map(r => {
+        container.innerHTML = sorted.map(({ row: r, level }) => {
             const stock = toNum(r['Stock']);
-            const badgeStyle = stock < 0 ? 'background:#fee2e2; color:#b91c1c;' : (stock === 0 ? 'background:#fef3c7; color:#92400e;' : '');
+            const c = levelColors[level];
             return `
-            <div class="price-card">
+            <div class="price-card" style="border-left:4px solid ${c.border};">
                 <div class="price-card-info">
                     <div class="price-card-name">${r['Item Name'] || r['SKU'] || 'Item'}</div>
                 </div>
                 <div class="price-card-actions">
-                    <div class="price-card-val" style="${badgeStyle}">${stock}</div>
+                    <div class="price-card-val" style="background:${c.bg}; color:${c.text};">${stock}</div>
                 </div>
             </div>
             `;
@@ -568,6 +613,13 @@
             (r['SKU'] || '').toLowerCase().includes(q)
         );
         renderStockTab(filtered);
+    }
+
+    function toggleStockLowFilter() {
+        stockShowLowOnly = !stockShowLowOnly;
+        const btn = document.getElementById('stockLowFilterBtn');
+        if (btn) btn.innerText = stockShowLowOnly ? '✅ Show All' : '⚠️ What to Stock';
+        filterStockTab();
     }
 
     function openCustomerDetails(custId, custName) {
@@ -2177,6 +2229,7 @@
         filterOrders,
         filterPriceList,
         filterStockTab,
+        toggleStockLowFilter,
         handlePriceCardTap,
         handleSearchSuggestInput,
         selectSuggestedProduct,
