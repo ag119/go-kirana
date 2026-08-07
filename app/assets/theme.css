@@ -187,6 +187,15 @@ a { color: inherit; }
         position: fixed;
         left: 0; right: 0; bottom: 0;
         z-index: 150;
+        /* iOS Safari can visually detach a `position: fixed` element from
+           the viewport mid-scroll (it drifts up the page instead of
+           staying pinned), especially on long scrolls while the address
+           bar is collapsing/expanding — exactly what a long list like
+           Order Stream triggers. Forcing this onto its own GPU-composited
+           layer keeps it correctly anchored throughout the scroll. */
+        transform: translate3d(0, 0, 0);
+        -webkit-transform: translate3d(0, 0, 0);
+        will-change: transform;
         background: var(--card-bg);
         border-top: 1px solid var(--border);
         box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
@@ -194,8 +203,11 @@ a { color: inherit; }
         transition: transform 0.25s ease;
     }
     /* Slid away while actively scrolling down a long list (see app/index.html) so
-       it never sits over the last card; reappears on scroll-up or near the top. */
-    .bottom-tab-bar.bottom-tab-bar--hidden { transform: translateY(100%); }
+       it never sits over the last card; reappears on scroll-up or near the top.
+       translate3d (not translateY) so the hidden state stays on the same
+       GPU-composited layer as the base state above instead of dropping back
+       to the main thread mid-animation. */
+    .bottom-tab-bar.bottom-tab-bar--hidden { transform: translate3d(0, 100%, 0); }
     .bottom-tab-btn {
         flex: 1;
         display: flex;
