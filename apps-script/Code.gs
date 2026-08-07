@@ -483,6 +483,80 @@ function handleDeleteInventoryItem_(session, body) {
 }
 
 /* ---------------------------------------------------------------------
+ * Product catalog management (admin-only, bulk add/update)
+ * ------------------------------------------------------------------- */
+
+const PRODUCTS_SHEET = 'Products';
+const PRODUCT_HEADER_ALIASES = {
+  sku: ['SKU'],
+  itemCategory: ['Item Category'],
+  itemName: ['Item Name'],
+  unitOfMeasurement: ['Unit of Measurement'],
+  pricePerUnit: ['Price per Unit'],
+  actualPrice: ['Actual Price'],
+  mrp: ['MRP'],
+  standardName: ['Standard Name'],
+  packagingType: ['Packaging Type'],
+  unitsPerPackage: ['Units per Package'],
+  searchKeywords: ['Search Keywords']
+};
+
+function getProductRowBySku_(sku) {
+  const rows = sheetToRows_(PRODUCTS_SHEET);
+  return rows.find(r => String(r['SKU'] || '').trim() === String(sku).trim()) || null;
+}
+
+// Add / update ONE product: if the SKU already exists, its row is replaced
+// outright with the freshly-entered values (not merged/incremented — unlike
+// Inventory's Stock, there's no "add to existing" concept for a catalog
+// entry). If the SKU isn't present yet, a new row is created. No role
+// check / locking here — callers wrap those around it.
+function addOrUpdateProduct_(item) {
+  const sku = String(item.sku || '').trim();
+  if (!sku) return { sku: '', status: 'error', message: 'Missing SKU.' };
+
+  const dataObj = {
+    sku: sku,
+    itemCategory: item.itemCategory || '',
+    itemName: item.itemName || '',
+    unitOfMeasurement: item.unitOfMeasurement || '',
+    pricePerUnit: Number(item.pricePerUnit) || 0,
+    actualPrice: Number(item.actualPrice) || 0,
+    mrp: Number(item.mrp) || 0,
+    standardName: item.standardName || '',
+    packagingType: item.packagingType || '',
+    unitsPerPackage: Number(item.unitsPerPackage) || 0,
+    searchKeywords: item.searchKeywords || ''
+  };
+
+  const existing = getProductRowBySku_(sku);
+  if (existing) {
+    updateRowByHeaders_(PRODUCTS_SHEET, 'SKU', sku, dataObj, PRODUCT_HEADER_ALIASES);
+    return { sku: sku, status: 'success', created: false };
+  }
+
+  appendRowByHeaders_(PRODUCTS_SHEET, dataObj, PRODUCT_HEADER_ALIASES);
+  return { sku: sku, status: 'success', created: true };
+}
+
+// One request for a whole batch — one lock acquisition, one spreadsheet
+// open, looping in-process — instead of the client firing one request per
+// item. Items are processed in array order within the same execution, so
+// a duplicate SKU within one batch just means the later entry updates
+// what the earlier one in the same batch already wrote.
+function handleBulkAddProducts_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can manage products.' };
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) return { status: 'error', message: 'No items provided.' };
+
+  return withLock_(() => {
+    const results = items.map(item => addOrUpdateProduct_(item));
+    return { status: 'success', results: results };
+  });
+}
+
+/* ---------------------------------------------------------------------
  * Draft Orders + Audit Log
  *
  * Agent Hub's "Take Order" / "New Order" flows persist here (in addition
@@ -762,6 +836,10 @@ function doPost(e) {
 
     if (action === 'deleteInventoryItem') {
       return json_(handleDeleteInventoryItem_(session, body));
+    }
+
+    if (action === 'bulkAddProducts') {
+      return json_(handleBulkAddProducts_(session, body));
     }
 
     return json_({ status: 'error', message: 'Unknown action.' });

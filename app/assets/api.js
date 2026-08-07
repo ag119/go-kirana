@@ -313,6 +313,16 @@
         return data;
     }
 
+    async function bulkAddProducts(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'bulkAddProducts', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to submit product list.');
+        }
+        clearCache();
+        return data;
+    }
+
     global.GK = global.GK || {};
     global.GK.api = {
         login,
@@ -329,6 +339,7 @@
         getAgentList,
         addInventoryStock,
         bulkAddInventoryStock,
+        bulkAddProducts,
         updateInventoryItem,
         deleteInventoryItem,
         isLoggedIn: () => !!getSession(),

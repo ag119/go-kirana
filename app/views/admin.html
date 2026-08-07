@@ -16,6 +16,7 @@
             <button class="pill-btn" onclick="switchTab('draftOrdersTab')">📋 Draft Orders</button>
             <button class="pill-btn" onclick="switchTab('auditLogTab')">🧾 Audit Log</button>
             <button class="pill-btn" onclick="switchTab('inventoryMgmtTab')">📦 Manage Inventory</button>
+            <button class="pill-btn" onclick="switchTab('addProductsTab')">➕ Add Products</button>
         </div>
 
         <!-- TAB 1: CUSTOMERS RANKED -->
@@ -336,6 +337,91 @@
                 <input type="text" id="invMgmtSearch" placeholder="Search inventory by name or SKU..." onkeyup="filterInventoryMgmt()">
             </div>
             <div id="invMgmtList"></div>
+        </div>
+
+        <!-- TAB: ADD PRODUCTS (bulk add/update to the Products catalog sheet) -->
+        <div id="addProductsTab" class="tab-content">
+            <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto 24px auto;">
+                <div class="section-title" style="margin-bottom:6px;">
+                    <span>➕ Add / Update Products</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
+                    Fill in a product's details and add it to the list below — build up as many as you like, then submit them all in one go. If a SKU you enter already exists, submitting will update that product instead of creating a duplicate.
+                </p>
+
+                <datalist id="existingSkuList"></datalist>
+                <datalist id="productCategoryList"></datalist>
+                <datalist id="uomList"></datalist>
+                <datalist id="packagingTypeList"></datalist>
+
+                <div class="form-row-3">
+                    <div>
+                        <label>SKU *</label>
+                        <input type="text" id="prodSkuInput" class="input-standard" list="existingSkuList" placeholder="Type new SKU or pick existing" onchange="checkProductSku()">
+                    </div>
+                    <div>
+                        <label>Item Name *</label>
+                        <input type="text" id="prodItemNameInput" class="input-standard" placeholder="e.g. Parle-G ₹5 PACK - 24 Units">
+                    </div>
+                    <div>
+                        <label>Standard Name</label>
+                        <input type="text" id="prodStandardNameInput" class="input-standard" placeholder="e.g. Parle-G">
+                    </div>
+                </div>
+
+                <div id="prodSkuInfo" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin:14px 0; font-size:0.85rem;"></div>
+
+                <div class="form-row-3" style="margin-top:14px;">
+                    <div>
+                        <label>Item Category</label>
+                        <input type="text" id="prodCategoryInput" class="input-standard" list="productCategoryList" placeholder="e.g. Biscuits">
+                    </div>
+                    <div>
+                        <label>Unit of Measurement</label>
+                        <input type="text" id="prodUomInput" class="input-standard" list="uomList" placeholder="e.g. Pack">
+                    </div>
+                    <div>
+                        <label>Packaging Type</label>
+                        <input type="text" id="prodPackagingInput" class="input-standard" list="packagingTypeList" placeholder="e.g. Pouch">
+                    </div>
+                </div>
+
+                <div class="form-row-3" style="margin-top:14px;">
+                    <div>
+                        <label>Units per Package</label>
+                        <input type="number" id="prodUnitsPerPackageInput" class="input-standard" min="0" placeholder="e.g. 24">
+                    </div>
+                    <div>
+                        <label>Price per Unit (₹)</label>
+                        <input type="number" id="prodPricePerUnitInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 108">
+                    </div>
+                    <div>
+                        <label>Actual Price (₹)</label>
+                        <input type="number" id="prodActualPriceInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 104.17">
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:14px;">
+                    <label>MRP (₹)</label>
+                    <input type="number" id="prodMrpInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 110">
+                </div>
+
+                <div class="form-group">
+                    <label>Search Keywords</label>
+                    <input type="text" id="prodSearchKeywordsInput" class="input-standard" placeholder="comma-separated, e.g. parle, glucose, biscuit">
+                </div>
+
+                <button class="btn-submit" onclick="addProductQueueItem()" style="margin-top:8px; width:100%;">➕ Add to List</button>
+
+                <div style="margin-top:24px; padding-top:20px; border-top:1px dashed var(--border);">
+                    <div class="section-title" style="font-size:0.95rem; margin-bottom:10px;">
+                        <span>🧾 Items to Add</span>
+                        <span style="font-size:0.8rem; color:var(--text-muted);" id="prodQueueCount">0 Items</span>
+                    </div>
+                    <div id="prodQueueList" style="margin-bottom:16px;"><p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p></div>
+                    <button class="whatsapp-send-btn" id="prodQueueSubmitBtn" onclick="submitProductQueue()" disabled>🚀 Add All to Products</button>
+                </div>
+            </div>
         </div>
     </div>
 

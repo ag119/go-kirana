@@ -37,6 +37,9 @@
     let editingInventorySku = null;
     let bulkInventoryQueue = [];
 
+    // Add Products state
+    let productQueue = [];
+
     function loadChartJs() {
         if (window.Chart) return Promise.resolve();
         if (chartJsLoadPromise) return chartJsLoadPromise;
@@ -101,6 +104,7 @@
             renderCustomersGrid(processedCustomers);
             renderFollowupGrid();
             renderPriceList(rawProducts);
+            renderProductDatalists();
             filterStockTab();
             renderOrdersStream(rawOrders);
             buildInsightIndex();
@@ -1575,6 +1579,170 @@
         }
     }
 
+    // --- ADD PRODUCTS (bulk add/update to the Products catalog) -----------
+    // Item Category / Unit of Measurement / Packaging Type accept free text
+    // but suggest whatever values already exist in the live sheet, via
+    // <datalist> — real usage, not a guessed fixed list.
+    function renderProductDatalists() {
+        const categories = [...new Set(rawProducts.map(p => (p['Item Category'] || '').trim()).filter(Boolean))].sort();
+        const uoms = [...new Set(rawProducts.map(p => (p['Unit of Measurement'] || '').trim()).filter(Boolean))].sort();
+        const packagingTypes = [...new Set(rawProducts.map(p => (p['Packaging Type'] || '').trim()).filter(Boolean))].sort();
+
+        const toOptions = list => list.map(v => `<option value="${v.replace(/"/g, '&quot;')}">`).join('');
+        document.getElementById('productCategoryList').innerHTML = toOptions(categories);
+        document.getElementById('uomList').innerHTML = toOptions(uoms);
+        document.getElementById('packagingTypeList').innerHTML = toOptions(packagingTypes);
+
+        // SKU suggestions show the item name as the visible label (option
+        // value is the SKU actually filled in) so admin can find a product
+        // by name without needing to know its SKU by heart.
+        document.getElementById('existingSkuList').innerHTML = rawProducts
+            .filter(p => (p['SKU'] || '').trim())
+            .map(p => `<option value="${String(p['SKU']).trim().replace(/"/g, '&quot;')}">${(p['Item Name'] || '').replace(/</g, '&lt;')}</option>`)
+            .join('');
+    }
+
+    // Live SKU lookup as admin fills the form — mirrors the Inventory tool's
+    // "already in inventory" check: if the SKU already exists in Products,
+    // pre-fill the rest of the form from its current values (so admin edits
+    // in place instead of retyping) and make clear this will UPDATE it
+    // rather than create a duplicate.
+    function checkProductSku() {
+        const sku = document.getElementById('prodSkuInput').value.trim();
+        const infoBox = document.getElementById('prodSkuInfo');
+        if (!sku) { infoBox.style.display = 'none'; return; }
+
+        const existing = rawProducts.find(p => (p['SKU'] || '').trim() === sku);
+        if (existing) {
+            infoBox.innerHTML = "✔ SKU already exists — submitting will update this product's details (fields below pre-filled from its current values).";
+            document.getElementById('prodItemNameInput').value = existing['Item Name'] || '';
+            document.getElementById('prodStandardNameInput').value = existing['Standard Name'] || '';
+            document.getElementById('prodCategoryInput').value = existing['Item Category'] || '';
+            document.getElementById('prodUomInput').value = existing['Unit of Measurement'] || '';
+            document.getElementById('prodPackagingInput').value = existing['Packaging Type'] || '';
+            document.getElementById('prodUnitsPerPackageInput').value = existing['Units per Package'] || '';
+            document.getElementById('prodPricePerUnitInput').value = existing['Price per Unit'] || '';
+            document.getElementById('prodActualPriceInput').value = existing['Actual Price'] || '';
+            document.getElementById('prodMrpInput').value = existing['MRP'] || '';
+            document.getElementById('prodSearchKeywordsInput').value = existing['Search Keywords'] || '';
+        } else {
+            infoBox.innerHTML = '➕ New SKU — submitting will create a new product.';
+        }
+        infoBox.style.display = 'block';
+    }
+
+    const PRODUCT_FORM_FIELD_IDS = [
+        'prodSkuInput', 'prodItemNameInput', 'prodStandardNameInput',
+        'prodCategoryInput', 'prodUomInput', 'prodPackagingInput',
+        'prodUnitsPerPackageInput', 'prodPricePerUnitInput', 'prodActualPriceInput',
+        'prodMrpInput', 'prodSearchKeywordsInput'
+    ];
+
+    function addProductQueueItem() {
+        const sku = document.getElementById('prodSkuInput').value.trim();
+        const itemName = document.getElementById('prodItemNameInput').value.trim();
+        if (!sku) { alert('Please enter a SKU.'); return; }
+        if (!itemName) { alert('Please enter an Item Name.'); return; }
+
+        productQueue.push({
+            sku: sku,
+            itemName: itemName,
+            standardName: document.getElementById('prodStandardNameInput').value.trim(),
+            itemCategory: document.getElementById('prodCategoryInput').value.trim(),
+            unitOfMeasurement: document.getElementById('prodUomInput').value.trim(),
+            packagingType: document.getElementById('prodPackagingInput').value.trim(),
+            unitsPerPackage: parseFloat(document.getElementById('prodUnitsPerPackageInput').value) || 0,
+            pricePerUnit: parseFloat(document.getElementById('prodPricePerUnitInput').value) || 0,
+            actualPrice: parseFloat(document.getElementById('prodActualPriceInput').value) || 0,
+            mrp: parseFloat(document.getElementById('prodMrpInput').value) || 0,
+            searchKeywords: document.getElementById('prodSearchKeywordsInput').value.trim()
+        });
+
+        PRODUCT_FORM_FIELD_IDS.forEach(id => { document.getElementById(id).value = ''; });
+        document.getElementById('prodSkuInfo').style.display = 'none';
+
+        renderProductQueue();
+        document.getElementById('prodSkuInput').focus();
+    }
+
+    function renderProductQueue() {
+        const container = document.getElementById('prodQueueList');
+        const countEl = document.getElementById('prodQueueCount');
+        const submitBtn = document.getElementById('prodQueueSubmitBtn');
+        if (!container) return;
+
+        countEl.innerText = `${productQueue.length} Item(s)`;
+        submitBtn.disabled = !productQueue.length;
+
+        if (!productQueue.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p>';
+            return;
+        }
+
+        container.innerHTML = productQueue.map((item, idx) => {
+            const exists = rawProducts.some(p => (p['SKU'] || '').trim() === item.sku);
+            const note = exists ? 'will update existing' : 'new product';
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                <div>
+                    <strong>${item.itemName}</strong>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">${item.sku} • ${note} • ₹${item.pricePerUnit}/unit</div>
+                </div>
+                <button onclick="removeProductQueueItem(${idx})" style="border:none; background:none; color:red; font-weight:bold; cursor:pointer; font-size:1rem;">✕</button>
+            </div>`;
+        }).join('');
+    }
+
+    function removeProductQueueItem(idx) {
+        productQueue.splice(idx, 1);
+        renderProductQueue();
+    }
+
+    async function submitProductQueue() {
+        if (!productQueue.length) return;
+
+        const submitBtn = document.getElementById('prodQueueSubmitBtn');
+        const originalLabel = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '⏳ Submitting...';
+
+        try {
+            await GK.api.bulkAddProducts({ items: productQueue });
+            productQueue = [];
+            renderProductQueue();
+            await refreshProductsAfterAdd();
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to submit product list.'));
+            submitBtn.disabled = false;
+        } finally {
+            submitBtn.innerHTML = originalLabel;
+        }
+    }
+
+    // Narrower than a full fetchLiveData() — Products feeds the search/price
+    // map used all over this view, so refresh just that sheet and the
+    // views/state derived from it, not everything.
+    async function refreshProductsAfterAdd() {
+        rawProducts = await GK.api.getSheet('Products', { force: true });
+
+        productMapBySKU = {};
+        productMapByNameAndPrice = {};
+        rawProducts.forEach(p => {
+            const sku = (p['SKU'] || '').trim();
+            const name = p['Item Name'] || p['Standard Name'] || sku;
+            const price = parseFloat(p['Price per Unit'] || 0);
+            const costPrice = parseFloat(p['Cost Price'] || p['Actual Price'] || p['Cost'] || p['Purchase Price'] || 0);
+            if (sku) {
+                productMapBySKU[sku] = { sku, name, price, costPrice };
+                const suggestionLabel = `${name} - ₹${price}`;
+                productMapByNameAndPrice[suggestionLabel.toLowerCase()] = { sku, name, price, costPrice };
+            }
+        });
+
+        renderPriceList(rawProducts);
+        renderProductDatalists();
+    }
+
     function toggleOrderItems(orderId) {
         const list = document.getElementById(`items-${orderId}`);
         if (list) list.classList.toggle('open');
@@ -2268,7 +2436,11 @@
         filterInventoryMgmt,
         editInventoryItem,
         saveInventoryItemEdit,
-        deleteInventoryItemPrompt
+        deleteInventoryItemPrompt,
+        checkProductSku,
+        addProductQueueItem,
+        removeProductQueueItem,
+        submitProductQueue
     });
 
     // The shell calls GK_viewInit itself right after this script loads —
