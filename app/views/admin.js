@@ -1765,6 +1765,7 @@
     }
 
     function renderOrdersStream(orders) {
+        warmBillPdfLibs(); // fire-and-forget: have jsPDF/html2canvas cached before "Send via WhatsApp" is clicked
         const stream = document.getElementById('ordersListStream');
         const sorted = sortOrdersDesc(orders);
         stream.innerHTML = withMonthDividers(sorted, o => {
@@ -1781,8 +1782,9 @@
                         <span class="profit-badge profit-pos">Profit: ₹${(parseFloat(o['Profit/Loss']) || 0).toLocaleString('en-IN', {maximumFractionDigits:2})}</span>
                     </div>
                 </div>
-                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right;">
+                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
                     <button class="btn-analytics" onclick="viewOrderBill('${orderId}')">🧾 View Bill</button>
+                    <button class="btn-whatsapp" onclick="shareBillOnWhatsApp('${orderId}', this)">📲 Send via WhatsApp</button>
                 </div>
             </div>
             `;
@@ -1944,6 +1946,11 @@
                     <div class="totals-row grand"><span>Grand Total</span><span>₹${grandTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>
                 </div>
 
+                <div class="return-policy">
+                    <div class="return-policy-en">Returns are accepted within 48 hours of purchase. Returns will not be accepted after this period.</div>
+                    <div class="return-policy-hi">उत्पाद खरीद की तारीख से 48 घंटे के भीतर वापस किए जा सकते हैं। इस अवधि के बाद वापसी स्वीकार नहीं की जाएगी।</div>
+                </div>
+
                 <div class="bill-footer">
                     <div class="thank-you">🙏 Thank you for shopping with Go-Kirana!</div>
                     <div class="footer-contact">📞 +91 7678153075 &nbsp;•&nbsp; ✉️ gokirana.wholesale@gmail.com</div>
@@ -2005,6 +2012,10 @@
     .totals-row .free-tag { color: #15803d; font-weight: 800; }
     .totals-row.grand { border-top: 2px solid var(--navy); margin-top: 6px; padding-top: 10px; font-size: 1.1rem; font-weight: 800; color: var(--red); }
 
+    .return-policy { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; text-align: center; }
+    .return-policy-en { font-size: 0.78rem; font-weight: 600; color: var(--navy); }
+    .return-policy-hi { font-size: 0.78rem; font-weight: 600; color: var(--navy); margin-top: 2px; }
+
     .bill-footer { text-align: center; border-top: 1px dashed var(--border); padding-top: 16px; }
     .thank-you { font-weight: 700; margin-bottom: 4px; }
     .footer-contact { font-size: 0.78rem; color: var(--muted); }
@@ -2049,6 +2060,138 @@
         if (!order) { alert('Order not found.'); return; }
         const items = billItemsForOrder(orderId);
         openBillDocument(`Go-Kirana — Bill ${orderId}`, buildBillSection(order, items));
+    }
+
+    // --- SEND BILL VIA WHATSAPP (real PDF, native share sheet) ------------
+    // There's no actual PDF anywhere in the app today — "View Bill" just
+    // opens the print-ready HTML (buildBillSection/wrapBillDocument) in a
+    // new tab. To hand the customer a real file over WhatsApp, that same
+    // HTML is rendered off-screen with html2canvas and the resulting image
+    // is wrapped in a jsPDF document. Both libraries are pulled from a CDN
+    // lazily on first use — not part of the app shell/service-worker
+    // precache — so views that never touch billing pay nothing for them.
+    let _billPdfLibsPromise = null;
+    function loadScriptOnce(src) {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+            const s = document.createElement('script');
+            s.src = src;
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error('Could not load ' + src));
+            document.head.appendChild(s);
+        });
+    }
+    function loadBillPdfLibs() {
+        if (!_billPdfLibsPromise) {
+            _billPdfLibsPromise = loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+        }
+        return _billPdfLibsPromise;
+    }
+
+    // navigator.share() only works while a user gesture's "activation" is
+    // still live, and generating the PDF (loading libraries + rendering a
+    // canvas) takes real time — on a first-ever share, fetching those
+    // libraries fresh from the CDN could eat enough of that window to make
+    // the share silently fail. Warming both into the browser's HTTP cache
+    // as soon as the Orders stream renders (well before any click) means
+    // by the time someone actually presses "Send via WhatsApp", jsPDF is
+    // already loaded and html2canvas is a fast cache hit inside the iframe.
+    function warmBillPdfLibs() {
+        loadBillPdfLibs().catch(() => {});
+        fetch('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js').catch(() => {});
+    }
+
+    // Renders one bill (the exact markup "View Bill" uses) inside a hidden
+    // iframe, loading html2canvas into that iframe's OWN window before
+    // calling it — html2canvas needs to run in the same window as the
+    // document it's reading computed styles from. Using an iframe (rather
+    // than an off-screen node in the main document) also means the bill's
+    // own CSS variables (--navy, --bg, --border, ...) never leak into the
+    // app shell's theme, since the iframe has a completely separate :root.
+    function renderBillToCanvas(sectionsHtml) {
+        return new Promise((resolve, reject) => {
+            const iframe = document.createElement('iframe');
+            iframe.style.cssText = 'position:fixed; top:-10000px; left:-10000px; width:800px; height:1400px; border:0;';
+            iframe.onload = () => {
+                const idoc = iframe.contentDocument;
+                const script = idoc.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+                script.onload = async () => {
+                    try {
+                        const target = idoc.querySelector('.bill-card');
+                        const canvas = await iframe.contentWindow.html2canvas(target, { scale: 2, backgroundColor: '#ffffff' });
+                        resolve(canvas);
+                    } catch (err) {
+                        reject(err);
+                    } finally {
+                        document.body.removeChild(iframe);
+                    }
+                };
+                script.onerror = () => { document.body.removeChild(iframe); reject(new Error('Could not load html2canvas.')); };
+                idoc.head.appendChild(script);
+            };
+            document.body.appendChild(iframe);
+            iframe.srcdoc = wrapBillDocument('Bill', sectionsHtml);
+        });
+    }
+
+    async function buildBillPdfBlob(orderId) {
+        const order = billOrderById(orderId);
+        if (!order) throw new Error('Order not found.');
+        const items = billItemsForOrder(orderId);
+
+        await loadBillPdfLibs();
+        const canvas = await renderBillToCanvas(buildBillSection(order, items));
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ unit: 'px', format: [canvas.width, canvas.height] });
+        pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+        return pdf.output('blob');
+    }
+
+    // navigator.share with a File is the only web API that hands another
+    // app (WhatsApp) an actual file — there's no way to deep-link straight
+    // into a specific WhatsApp chat AND attach a file at once, so this opens
+    // the phone's native share sheet (same one "Share" uses anywhere else)
+    // and the admin picks WhatsApp + the customer's chat from there. Falls
+    // back to downloading the PDF + opening a wa.me chat with just the
+    // caption on browsers that can't share files (mainly desktop).
+    async function shareBillOnWhatsApp(orderId, btnEl) {
+        const order = billOrderById(orderId);
+        if (!order) { alert('Order not found.'); return; }
+
+        const originalLabel = btnEl ? btnEl.innerHTML : null;
+        if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '⏳ Preparing...'; }
+
+        const caption = `Here is your bill 🧾 — Order ${orderId}. Thank you for shopping with Go-Kirana!`;
+
+        try {
+            const blob = await buildBillPdfBlob(orderId);
+            const file = new File([blob], `GoKirana-Bill-${orderId}.pdf`, { type: 'application/pdf' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], text: caption, title: `Go-Kirana Bill ${orderId}` });
+            } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `GoKirana-Bill-${orderId}.pdf`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+                const custContact = billCustomerContact(order);
+                const waNum = custContact ? custContact.replace(/[^0-9]/g, '') : '';
+                const waUrl = `https://wa.me/${waNum}?text=${encodeURIComponent(caption)}`;
+                window.open(waUrl, '_blank');
+                alert('📄 Bill PDF downloaded — your browser can\'t hand a file straight to WhatsApp, so attach the downloaded file in the chat that just opened.');
+            }
+        } catch (err) {
+            if (err && err.name === 'AbortError') return; // admin cancelled the native share sheet
+            alert('⚠️ Failed to prepare the bill for sharing: ' + (err.message || err));
+        } finally {
+            if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
+        }
     }
 
     // --- DAY-WISE BILLS (admin only) ---------------------------------------
@@ -2416,6 +2559,7 @@
         renderShopInsights,
         toggleCockpit,
         viewOrderBill,
+        shareBillOnWhatsApp,
         updateDayWiseBillsSummary,
         generateDayWiseBills,
         startFreshNewOrder,

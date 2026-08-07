@@ -541,6 +541,19 @@ a { color: inherit; }
     cursor: pointer;
 }
 
+.btn-whatsapp {
+    background: #25D366;
+    color: #ffffff;
+    border: none;
+    padding: 10px 14px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.btn-whatsapp:hover { background: #1ebe5b; }
+.btn-whatsapp:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* ---------- Modal Overlay & Containers ---------- */
 .modal-overlay {
     position: fixed;
