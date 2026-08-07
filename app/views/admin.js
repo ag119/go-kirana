@@ -1966,7 +1966,7 @@
 <meta charset="UTF-8">
 <title>${title}</title>
 <style>
-    :root {
+    .bill-render-scope {
         --navy: #2C3E50;
         --red: #E53935;
         --gold: #C9971C;
@@ -2030,7 +2030,7 @@
     }
 </style>
 </head>
-<body>
+<body class="bill-render-scope">
     <div class="toolbar">
         <div>
             <h1>${title}</h1>
@@ -2070,6 +2070,13 @@
     // is wrapped in a jsPDF document. Both libraries are pulled from a CDN
     // lazily on first use — not part of the app shell/service-worker
     // precache — so views that never touch billing pay nothing for them.
+    //
+    // An earlier version rendered into a hidden <iframe srcdoc="..."> and
+    // loaded html2canvas into that iframe's own window — this looked clean
+    // but was unreliable in practice (some browsers/network conditions
+    // fail to load a script injected into a srcdoc document). Rendering
+    // straight into the main document instead uses the exact same
+    // script-loading path already proven to work for jsPDF.
     let _billPdfLibsPromise = null;
     function loadScriptOnce(src) {
         return new Promise((resolve, reject) => {
@@ -2083,7 +2090,10 @@
     }
     function loadBillPdfLibs() {
         if (!_billPdfLibsPromise) {
-            _billPdfLibsPromise = loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            _billPdfLibsPromise = Promise.all([
+                loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+                loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
+            ]);
         }
         return _billPdfLibsPromise;
     }
@@ -2092,47 +2102,42 @@
     // still live, and generating the PDF (loading libraries + rendering a
     // canvas) takes real time — on a first-ever share, fetching those
     // libraries fresh from the CDN could eat enough of that window to make
-    // the share silently fail. Warming both into the browser's HTTP cache
-    // as soon as the Orders stream renders (well before any click) means
-    // by the time someone actually presses "Send via WhatsApp", jsPDF is
-    // already loaded and html2canvas is a fast cache hit inside the iframe.
+    // the share silently fail. Loading both as soon as the Orders stream
+    // renders (well before any click) means by the time someone actually
+    // presses "Send via WhatsApp", they're already cached.
     function warmBillPdfLibs() {
         loadBillPdfLibs().catch(() => {});
-        fetch('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js').catch(() => {});
     }
 
-    // Renders one bill (the exact markup "View Bill" uses) inside a hidden
-    // iframe, loading html2canvas into that iframe's OWN window before
-    // calling it — html2canvas needs to run in the same window as the
-    // document it's reading computed styles from. Using an iframe (rather
-    // than an off-screen node in the main document) also means the bill's
-    // own CSS variables (--navy, --bg, --border, ...) never leak into the
-    // app shell's theme, since the iframe has a completely separate :root.
-    function renderBillToCanvas(sectionsHtml) {
-        return new Promise((resolve, reject) => {
-            const iframe = document.createElement('iframe');
-            iframe.style.cssText = 'position:fixed; top:-10000px; left:-10000px; width:800px; height:1400px; border:0;';
-            iframe.onload = () => {
-                const idoc = iframe.contentDocument;
-                const script = idoc.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-                script.onload = async () => {
-                    try {
-                        const target = idoc.querySelector('.bill-card');
-                        const canvas = await iframe.contentWindow.html2canvas(target, { scale: 2, backgroundColor: '#ffffff' });
-                        resolve(canvas);
-                    } catch (err) {
-                        reject(err);
-                    } finally {
-                        document.body.removeChild(iframe);
-                    }
-                };
-                script.onerror = () => { document.body.removeChild(iframe); reject(new Error('Could not load html2canvas.')); };
-                idoc.head.appendChild(script);
-            };
-            document.body.appendChild(iframe);
-            iframe.srcdoc = wrapBillDocument('Bill', sectionsHtml);
-        });
+    // Bill CSS (the <style> block inside wrapBillDocument) is scoped under
+    // a .bill-render-scope class rather than :root specifically so it can
+    // be safely injected into the app shell's own document here without
+    // its --navy/--bg/--border/... variables leaking into the app's theme.
+    function ensureBillStylesInjected() {
+        if (document.getElementById('billPdfStyles')) return;
+        const doc = new DOMParser().parseFromString(wrapBillDocument('', ''), 'text/html');
+        const style = document.createElement('style');
+        style.id = 'billPdfStyles';
+        style.textContent = doc.querySelector('style').textContent;
+        document.head.appendChild(style);
+    }
+
+    // Renders one bill (the exact markup "View Bill" uses) into a hidden,
+    // off-screen node in the current document so html2canvas can photograph
+    // fully laid-out, correctly-styled markup.
+    async function renderBillToCanvas(sectionsHtml) {
+        ensureBillStylesInjected();
+        const holder = document.createElement('div');
+        holder.className = 'bill-render-scope';
+        holder.style.cssText = 'position:fixed; top:-10000px; left:-10000px; width:800px; background:#F4F7F6; padding:24px;';
+        holder.innerHTML = sectionsHtml;
+        document.body.appendChild(holder);
+        try {
+            const target = holder.querySelector('.bill-card');
+            return await html2canvas(target, { scale: 2, backgroundColor: '#ffffff' });
+        } finally {
+            document.body.removeChild(holder);
+        }
     }
 
     async function buildBillPdfBlob(orderId) {

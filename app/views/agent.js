@@ -1223,6 +1223,7 @@
     }
 
     function renderOrdersStream(orders) {
+        warmBillPdfLibs(); // fire-and-forget: have jsPDF/html2canvas cached before "Send via WhatsApp" is clicked
         const stream = document.getElementById('ordersListStream');
         const sorted = sortOrdersDesc(orders);
         stream.innerHTML = withMonthDividers(sorted, o => {
@@ -1239,8 +1240,9 @@
                         <span class="profit-badge profit-pos">Profit: ₹${(parseFloat(o['Profit/Loss']) || 0).toLocaleString('en-IN', {maximumFractionDigits:2})}</span>
                     </div>
                 </div>
-                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right;">
+                <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
                     <button class="btn-analytics" onclick="viewOrderBill('${orderId}')">🧾 View Bill</button>
+                    <button class="btn-whatsapp" onclick="shareBillOnWhatsApp('${orderId}', this)">📲 Send via WhatsApp</button>
                 </div>
             </div>
             `;
@@ -1402,6 +1404,11 @@
                     <div class="totals-row grand"><span>Grand Total</span><span>₹${grandTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>
                 </div>
 
+                <div class="return-policy">
+                    <div class="return-policy-en">Returns are accepted within 48 hours of purchase. Returns will not be accepted after this period.</div>
+                    <div class="return-policy-hi">उत्पाद खरीद की तारीख से 48 घंटे के भीतर वापस किए जा सकते हैं। इस अवधि के बाद वापसी स्वीकार नहीं की जाएगी।</div>
+                </div>
+
                 <div class="bill-footer">
                     <div class="thank-you">🙏 Thank you for shopping with Go-Kirana!</div>
                     <div class="footer-contact">📞 +91 7678153075 &nbsp;•&nbsp; ✉️ gokirana.wholesale@gmail.com</div>
@@ -1417,7 +1424,7 @@
 <meta charset="UTF-8">
 <title>${title}</title>
 <style>
-    :root {
+    .bill-render-scope {
         --navy: #2C3E50;
         --red: #E53935;
         --gold: #C9971C;
@@ -1463,6 +1470,10 @@
     .totals-row .free-tag { color: #15803d; font-weight: 800; }
     .totals-row.grand { border-top: 2px solid var(--navy); margin-top: 6px; padding-top: 10px; font-size: 1.1rem; font-weight: 800; color: var(--red); }
 
+    .return-policy { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; text-align: center; }
+    .return-policy-en { font-size: 0.78rem; font-weight: 600; color: var(--navy); }
+    .return-policy-hi { font-size: 0.78rem; font-weight: 600; color: var(--navy); margin-top: 2px; }
+
     .bill-footer { text-align: center; border-top: 1px dashed var(--border); padding-top: 16px; }
     .thank-you { font-weight: 700; margin-bottom: 4px; }
     .footer-contact { font-size: 0.78rem; color: var(--muted); }
@@ -1477,7 +1488,7 @@
     }
 </style>
 </head>
-<body>
+<body class="bill-render-scope">
     <div class="toolbar">
         <div>
             <h1>${title}</h1>
@@ -1507,6 +1518,143 @@
         if (!order) { alert('Order not found.'); return; }
         const items = billItemsForOrder(orderId);
         openBillDocument(`Go-Kirana — Bill ${orderId}`, buildBillSection(order, items));
+    }
+
+    // --- SEND BILL VIA WHATSAPP (real PDF, native share sheet) ------------
+    // There's no actual PDF anywhere in the app today — "View Bill" just
+    // opens the print-ready HTML (buildBillSection/wrapBillDocument) in a
+    // new tab. To hand the customer a real file over WhatsApp, that same
+    // HTML is rendered off-screen with html2canvas and the resulting image
+    // is wrapped in a jsPDF document. Both libraries are pulled from a CDN
+    // lazily on first use — not part of the app shell/service-worker
+    // precache — so views that never touch billing pay nothing for them.
+    //
+    // An earlier version rendered into a hidden <iframe srcdoc="..."> and
+    // loaded html2canvas into that iframe's own window — this looked clean
+    // but was unreliable in practice (some browsers/network conditions
+    // fail to load a script injected into a srcdoc document). Rendering
+    // straight into the main document instead uses the exact same
+    // script-loading path already proven to work for jsPDF.
+    let _billPdfLibsPromise = null;
+    function loadScriptOnce(src) {
+        return new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+            const s = document.createElement('script');
+            s.src = src;
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error('Could not load ' + src));
+            document.head.appendChild(s);
+        });
+    }
+    function loadBillPdfLibs() {
+        if (!_billPdfLibsPromise) {
+            _billPdfLibsPromise = Promise.all([
+                loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'),
+                loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js')
+            ]);
+        }
+        return _billPdfLibsPromise;
+    }
+
+    // navigator.share() only works while a user gesture's "activation" is
+    // still live, and generating the PDF (loading libraries + rendering a
+    // canvas) takes real time — on a first-ever share, fetching those
+    // libraries fresh from the CDN could eat enough of that window to make
+    // the share silently fail. Loading both as soon as the Orders stream
+    // renders (well before any click) means by the time someone actually
+    // presses "Send via WhatsApp", they're already cached.
+    function warmBillPdfLibs() {
+        loadBillPdfLibs().catch(() => {});
+    }
+
+    // Bill CSS (the <style> block inside wrapBillDocument) is scoped under
+    // a .bill-render-scope class rather than :root specifically so it can
+    // be safely injected into the app shell's own document here without
+    // its --navy/--bg/--border/... variables leaking into the app's theme.
+    function ensureBillStylesInjected() {
+        if (document.getElementById('billPdfStyles')) return;
+        const doc = new DOMParser().parseFromString(wrapBillDocument('', ''), 'text/html');
+        const style = document.createElement('style');
+        style.id = 'billPdfStyles';
+        style.textContent = doc.querySelector('style').textContent;
+        document.head.appendChild(style);
+    }
+
+    // Renders one bill (the exact markup "View Bill" uses) into a hidden,
+    // off-screen node in the current document so html2canvas can photograph
+    // fully laid-out, correctly-styled markup.
+    async function renderBillToCanvas(sectionsHtml) {
+        ensureBillStylesInjected();
+        const holder = document.createElement('div');
+        holder.className = 'bill-render-scope';
+        holder.style.cssText = 'position:fixed; top:-10000px; left:-10000px; width:800px; background:#F4F7F6; padding:24px;';
+        holder.innerHTML = sectionsHtml;
+        document.body.appendChild(holder);
+        try {
+            const target = holder.querySelector('.bill-card');
+            return await html2canvas(target, { scale: 2, backgroundColor: '#ffffff' });
+        } finally {
+            document.body.removeChild(holder);
+        }
+    }
+
+    async function buildBillPdfBlob(orderId) {
+        const order = billOrderById(orderId);
+        if (!order) throw new Error('Order not found.');
+        const items = billItemsForOrder(orderId);
+
+        await loadBillPdfLibs();
+        const canvas = await renderBillToCanvas(buildBillSection(order, items));
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ unit: 'px', format: [canvas.width, canvas.height] });
+        pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+        return pdf.output('blob');
+    }
+
+    // navigator.share with a File is the only web API that hands another
+    // app (WhatsApp) an actual file — there's no way to deep-link straight
+    // into a specific WhatsApp chat AND attach a file at once, so this opens
+    // the phone's native share sheet (same one "Share" uses anywhere else)
+    // and the admin picks WhatsApp + the customer's chat from there. Falls
+    // back to downloading the PDF + opening a wa.me chat with just the
+    // caption on browsers that can't share files (mainly desktop).
+    async function shareBillOnWhatsApp(orderId, btnEl) {
+        const order = billOrderById(orderId);
+        if (!order) { alert('Order not found.'); return; }
+
+        const originalLabel = btnEl ? btnEl.innerHTML : null;
+        if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '⏳ Preparing...'; }
+
+        const caption = `Here is your bill 🧾 — Order ${orderId}. Thank you for shopping with Go-Kirana!`;
+
+        try {
+            const blob = await buildBillPdfBlob(orderId);
+            const file = new File([blob], `GoKirana-Bill-${orderId}.pdf`, { type: 'application/pdf' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], text: caption, title: `Go-Kirana Bill ${orderId}` });
+            } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `GoKirana-Bill-${orderId}.pdf`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+                const custContact = billCustomerContact(order);
+                const waNum = custContact ? custContact.replace(/[^0-9]/g, '') : '';
+                const waUrl = `https://wa.me/${waNum}?text=${encodeURIComponent(caption)}`;
+                window.open(waUrl, '_blank');
+                alert('📄 Bill PDF downloaded — your browser can\'t hand a file straight to WhatsApp, so attach the downloaded file in the chat that just opened.');
+            }
+        } catch (err) {
+            if (err && err.name === 'AbortError') return; // cancelled the native share sheet
+            alert('⚠️ Failed to prepare the bill for sharing: ' + (err.message || err));
+        } finally {
+            if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalLabel; }
+        }
     }
 
     function switchTab(tabId) {
@@ -1557,7 +1705,8 @@
         confirmAssignAgent,
         toggleOrderItems,
         closeModal,
-        viewOrderBill
+        viewOrderBill,
+        shareBillOnWhatsApp
     });
 
     // The shell calls GK_viewInit itself right after this script loads —
