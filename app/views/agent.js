@@ -563,7 +563,7 @@
                     itemStats[itemName] = { totalQty: 0, orderAppearances: 0, lastOrderIndex: orderIndex };
                 }
 
-                itemStats[itemName].totalQty += (parseInt(i['Quantity']) || 1);
+                itemStats[itemName].totalQty += (parseFloat(i['Quantity']) || 1);
                 itemStats[itemName].orderAppearances += 1;
                 itemStats[itemName].lastOrderIndex = orderIndex;
             });
@@ -1339,7 +1339,7 @@
             const sku = (it['SKU'] || '').trim();
             const prod = productMapBySKU[sku];
             const name = prod ? prod.name : (sku || 'Item');
-            const qty = parseInt(it['Quantity']) || 0;
+            const qty = parseFloat(it['Quantity']) || 0;
             const unitPrice = parseFloat(String(it['Unit Price'] || 0).replace(/[^0-9.-]+/g, '')) || 0;
             const lineTotal = parseFloat(String(it['Calculated Total'] || (qty * unitPrice)).replace(/[^0-9.-]+/g, '')) || (qty * unitPrice);
             itemsSubtotal += lineTotal;

@@ -270,9 +270,9 @@
 
     function adjustSearchQty(delta) {
         const qtyInput = document.getElementById('orderProductSearchQty');
-        let current = parseInt(qtyInput.value) || 1;
+        let current = parseFloat(qtyInput.value) || 1;
         current += delta;
-        if (current < 1) current = 1;
+        if (current < 0.01) current = 0.01;
         qtyInput.value = current;
     }
 
@@ -282,7 +282,7 @@
         const dropdown = document.getElementById('orderProductDropdown');
 
         const val = searchInput.value.trim();
-        const qty = parseInt(qtyInput.value) || 1;
+        const qty = parseFloat(qtyInput.value) || 1;
 
         if (!val) return;
 
@@ -301,7 +301,7 @@
     }
 
     function updateSheetOrderItemQty(idx, newQty) {
-        const q = parseInt(newQty) || 1;
+        const q = parseFloat(newQty) || 1;
         sheetOrderCart[idx].qty = q > 0 ? q : 1;
         renderSheetOrderTable();
     }
@@ -340,7 +340,7 @@
                 <td style="text-align:center;">
                     <div style="display:inline-flex; align-items:center; gap:4px;">
                         <button style="border:none; background:#e2e8f0; width:26px; height:26px; border-radius:4px; font-weight:800; cursor:pointer;" onclick="updateSheetOrderItemQty(${idx}, ${item.qty - 1})">-</button>
-                        <input type="number" value="${item.qty}" min="1" style="width:45px; text-align:center; border:1px solid var(--border); border-radius:4px; padding:2px; font-weight:700;" onchange="updateSheetOrderItemQty(${idx}, this.value)">
+                        <input type="number" value="${item.qty}" min="0.01" step="0.01" style="width:55px; text-align:center; border:1px solid var(--border); border-radius:4px; padding:2px; font-weight:700;" onchange="updateSheetOrderItemQty(${idx}, this.value)">
                         <button style="border:none; background:#e2e8f0; width:26px; height:26px; border-radius:4px; font-weight:800; cursor:pointer;" onclick="updateSheetOrderItemQty(${idx}, ${item.qty + 1})">+</button>
                     </div>
                 </td>
@@ -365,11 +365,18 @@
     function renderSheetOrderSummary() {
         let itemsBilledTotal = 0;
         let itemsCostTotal = 0;
+        let totalUnits = 0;
 
         sheetOrderCart.forEach(item => {
             itemsBilledTotal += (item.qty * item.unitPrice);
             itemsCostTotal += (item.qty * item.costPrice);
+            totalUnits += item.qty;
         });
+
+        const lineCount = sheetOrderCart.length;
+        const unitsLabel = totalUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+        document.getElementById('sumItemCount').innerText =
+            `${lineCount} item${lineCount === 1 ? '' : 's'} · ${unitsLabel} unit${totalUnits === 1 ? '' : 's'}`;
 
         const delCharge = parseFloat(document.getElementById('orderDeliveryCharge').value) || 0;
         const damageCost = parseFloat(document.getElementById('orderDamageCost').value) || 0;

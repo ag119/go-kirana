@@ -54,7 +54,7 @@
                     <div style="display:flex; align-items:center; gap:6px; background:white; border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 12px;">
                         <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">Qty:</span>
                         <button style="border:none; background:#e2e8f0; width:30px; height:30px; border-radius:6px; font-weight:800; cursor:pointer;" onclick="adjustSearchQty(-1)">-</button>
-                        <input type="number" id="orderProductSearchQty" value="1" min="1" style="width:55px; text-align:center; border:none; outline:none; font-weight:800;">
+                        <input type="number" id="orderProductSearchQty" value="1" min="0.01" step="0.01" style="width:55px; text-align:center; border:none; outline:none; font-weight:800;">
                         <button style="border:none; background:#e2e8f0; width:30px; height:30px; border-radius:6px; font-weight:800; cursor:pointer;" onclick="adjustSearchQty(1)">+</button>
                     </div>
 
@@ -101,6 +101,10 @@
 
                 <div class="summary-card">
                     <div style="font-size:0.95rem; font-weight:800; color:var(--primary-dark); margin-bottom:12px;">📊 Live Calculation</div>
+                    <div class="summary-row">
+                        <span style="color:var(--text-muted);">Items in Order:</span>
+                        <strong id="sumItemCount">0 items</strong>
+                    </div>
                     <div class="summary-row">
                         <span style="color:var(--text-muted);">Total Billed Amount:</span>
                         <strong id="sumBilledAmount">₹0.00</strong>
