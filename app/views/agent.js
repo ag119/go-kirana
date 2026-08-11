@@ -91,12 +91,29 @@
         }
     }
 
+    // Score used to be revenue(40) + frequency(30) + recency(30), no cap
+    // beyond 100 — but revenue is scored relative to the current top
+    // spender, so that customer ALWAYS gets full marks on that axis by
+    // definition. Combined with frequency/recency both being easy to max
+    // out (order >=2x/week, stay on schedule), the single biggest spender
+    // could trivially land on a perfect 100 just by also being a regular,
+    // on-time orderer — with zero regard for whether that revenue was
+    // actually profitable. Adding profit margin as a 4th, genuinely
+    // independent axis (high volume doesn't imply high margin — bulk
+    // buyers often negotiate thinner ones) fixes that: hitting 100 now
+    // requires excelling at all four, not just three correlated ones.
     function processCustomerScoresAndRanks() {
         let maxRevenue = 1;
         rawCustomers.forEach(c => {
             const amt = parseFloat(String(c['Total Amount']||0).replace(/[^0-9.-]+/g,"")) || 0;
             if (amt > maxRevenue) maxRevenue = amt;
         });
+
+        // TARGET_MARGIN matches the 4% target used in Inventory Guide's
+        // margin preview — the business's own bar for "a healthy sale",
+        // reused here so a customer needs to be genuinely profitable (by
+        // the same yardstick used elsewhere in the app), not just above 0%.
+        const TARGET_MARGIN = 4.0;
 
         processedCustomers = rawCustomers.map(c => {
             const totalAmt = parseFloat(String(c['Total Amount']||0).replace(/[^0-9.-]+/g,"")) || 0;
@@ -105,13 +122,26 @@
             const weeklyFreq = parseFloat(c['Order Frequency (Per Week)']||0) || 0;
             const daysSince = parseFloat(c['Days Since Last Order']||0) || 0;
 
-            const revenueScore = (totalAmt / maxRevenue) * 40;
-            const freqScore = Math.min((weeklyFreq / 2.0) * 30, 30);
-            const targetIntervalDays = weeklyFreq > 1.0 ? (7 / weeklyFreq) : 7;
-            let recencyScore = 30 - Math.max(0, (daysSince - targetIntervalDays) * 3);
-            recencyScore = Math.max(0, recencyScore);
+            const custId = String(c['Id'] || c['ID'] || '').trim();
+            const custNameKey = (c['Owner Name'] || '').trim().toLowerCase();
+            let billed = 0, profit = 0;
+            rawOrders.forEach(o => {
+                const matches = (custId && String(o['CustomerId'] || '').trim() === custId) ||
+                    (o['CustomerName'] || '').trim().toLowerCase() === custNameKey;
+                if (!matches) return;
+                billed += parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+                profit += parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+            });
+            const marginPct = billed > 0 ? (profit / billed) * 100 : 0;
 
-            const finalScore = Math.round(revenueScore + freqScore + recencyScore);
+            const revenueScore = (totalAmt / maxRevenue) * 30;
+            const freqScore = Math.min((weeklyFreq / 2.0) * 25, 25);
+            const targetIntervalDays = weeklyFreq > 1.0 ? (7 / weeklyFreq) : 7;
+            let recencyScore = 20 - Math.max(0, (daysSince - targetIntervalDays) * 2);
+            recencyScore = Math.max(0, recencyScore);
+            const marginScore = Math.max(0, Math.min(marginPct / TARGET_MARGIN, 1)) * 25;
+
+            const finalScore = Math.round(revenueScore + freqScore + recencyScore + marginScore);
             const isFollowupDue = daysSince >= targetIntervalDays;
 
             return {
@@ -122,6 +152,7 @@
                 aov,
                 weeklyFreq,
                 daysSince,
+                marginPct,
                 targetIntervalDays: Math.round(targetIntervalDays),
                 isFollowupDue
             };

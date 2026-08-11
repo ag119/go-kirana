@@ -4,7 +4,7 @@
    fetching on a slow connection. It never touches the Apps Script API
    calls (POST, cross-origin) — those always go straight to the network. */
 
-const CACHE_NAME = 'gk-shell-v33';
+const CACHE_NAME = 'gk-shell-v34';
 const SHELL_ASSETS = [
     './',
     './index.html',
