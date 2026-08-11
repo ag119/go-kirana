@@ -136,14 +136,20 @@
     // an array of { columnHeader: value, ... } objects. Pass {force:true}
     // to bypass the cache (used by the shell's Refresh button).
     async function getSheet(sheetName, opts) {
+        const force = !!(opts && opts.force);
         const cacheKey = 'sheet:' + sheetName;
-        if (!(opts && opts.force)) {
+        if (!force) {
             const cached = readCache(cacheKey);
             if (cached) return cached.data;
         }
 
         const token = requireToken();
-        const data = await call({ action: 'getSheet', token, sheet: sheetName });
+        // force also has to reach the server — otherwise it only bypasses
+        // this client-side cache, and the server's own cache (see
+        // sheetToRows_ in Code.gs) could still hand back a change made
+        // directly in Google Sheets rather than through the app, which
+        // would make the "Refresh" button not actually refresh.
+        const data = await call({ action: 'getSheet', token, sheet: sheetName, force });
         if (!data || data.status !== 'success') {
             throw new Error((data && data.message) || `Failed to load "${sheetName}"`);
         }
@@ -177,7 +183,9 @@
         if (!missing.length) return result;
 
         const token = requireToken();
-        const data = await call({ action: 'getSheets', token, sheets: missing });
+        // See getSheet() above — force must reach the server too, or it
+        // only bypasses this client-side cache and not the server's own.
+        const data = await call({ action: 'getSheets', token, sheets: missing, force: !!force });
         if (!data || data.status !== 'success') {
             throw new Error((data && data.message) || 'Failed to load sheet data');
         }

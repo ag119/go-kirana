@@ -115,6 +115,27 @@
         // the same yardstick used elsewhere in the app), not just above 0%.
         const TARGET_MARGIN = 4.0;
 
+        // Pre-aggregate every order's billed/profit total once (O(orders))
+        // instead of re-scanning all of rawOrders for every customer
+        // (O(customers × orders)) — matters once order history grows.
+        // Each order is filed under BOTH its CustomerId and (lowercased)
+        // CustomerName, mirroring the OR-match this app uses everywhere
+        // else (openCustomerDetails etc.): a customer is credited with an
+        // order if EITHER key matches.
+        const custAgg = {};
+        function addToCustAgg(key, billed, profit) {
+            if (!key) return;
+            if (!custAgg[key]) custAgg[key] = { billed: 0, profit: 0 };
+            custAgg[key].billed += billed;
+            custAgg[key].profit += profit;
+        }
+        rawOrders.forEach(o => {
+            const billed = parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+            const profit = parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
+            addToCustAgg(String(o['CustomerId'] || '').trim(), billed, profit);
+            addToCustAgg((o['CustomerName'] || '').trim().toLowerCase(), billed, profit);
+        });
+
         processedCustomers = rawCustomers.map(c => {
             const totalAmt = parseFloat(String(c['Total Amount']||0).replace(/[^0-9.-]+/g,"")) || 0;
             const totalOrds = parseFloat(c['Total Orders']||0) || 0;
@@ -124,15 +145,8 @@
 
             const custId = String(c['Id'] || c['ID'] || '').trim();
             const custNameKey = (c['Owner Name'] || '').trim().toLowerCase();
-            let billed = 0, profit = 0;
-            rawOrders.forEach(o => {
-                const matches = (custId && String(o['CustomerId'] || '').trim() === custId) ||
-                    (o['CustomerName'] || '').trim().toLowerCase() === custNameKey;
-                if (!matches) return;
-                billed += parseFloat(String(o['Bill Amout'] || o['Bill Amount'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
-                profit += parseFloat(String(o['Profit/Loss'] || 0).replace(/[^0-9.-]+/g,"")) || 0;
-            });
-            const marginPct = billed > 0 ? (profit / billed) * 100 : 0;
+            const agg = (custId && custAgg[custId]) || custAgg[custNameKey] || { billed: 0, profit: 0 };
+            const marginPct = agg.billed > 0 ? (agg.profit / agg.billed) * 100 : 0;
 
             const revenueScore = (totalAmt / maxRevenue) * 30;
             const freqScore = Math.min((weeklyFreq / 2.0) * 25, 25);

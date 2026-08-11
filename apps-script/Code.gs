@@ -93,19 +93,120 @@ function normalizeHeader_(h) {
   return String(h || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function sheetToRows_(sheetName) {
+/* ---------------------------------------------------------------------
+ * Server-side sheet-read cache
+ *
+ * Reading a sheet (getDataRange().getValues() + building/serializing row
+ * objects) is the single biggest cost in a request beyond the fixed Apps
+ * Script Web App invocation overhead — a batched getSheets call pays that
+ * cost once per sheet, sequentially, in the same execution, since Apps
+ * Script has no internal parallelism. CacheService lets repeat reads
+ * (multiple staff/tabs loading around the same time, or one person's
+ * batched request touching several sheets) skip straight past it.
+ *
+ * Every write path explicitly clears the relevant sheet's cache entry
+ * (see appendRowByHeaders_/updateRowByHeaders_/deleteRowByHeaders_ below,
+ * plus decrementInventoryStock_'s one direct-write bypass), so a write is
+ * always visible on the very next read, from anyone. The TTL only bounds
+ * how long an *external* change (e.g. someone hand-editing a cell directly
+ * in Google Sheets, outside the app) could stay invisible — matched to the
+ * existing 5-minute client-side cache's own exposure to that exact same
+ * edge case, so this doesn't make anything less fresh than it already was.
+ * A short TTL (originally tried 30s) sounds "safer" but is actually just
+ * useless in practice: staff don't hammer the same request within 30
+ * seconds of each other, so nearly every real request would still find an
+ * expired, cold cache — measured on real usage, a 30s TTL gave no
+ * improvement at all outside of rapid back-to-back testing.
+ * ------------------------------------------------------------------- */
+
+const SHEET_CACHE_TTL_SECONDS = 300;
+// CacheService caps each key's value at 100KB — Order Details alone is
+// already well past that, so values are split across numbered chunk keys
+// and reassembled on read; a small meta key records how many chunks exist.
+const SHEET_CACHE_CHUNK_SIZE = 90000;
+
+function sheetCacheKey_(sheetName, suffix) {
+  return 'sheetcache_' + sheetName + '_' + suffix;
+}
+
+function getCachedSheet_(sheetName) {
+  const cache = CacheService.getScriptCache();
+  const chunkCountRaw = cache.get(sheetCacheKey_(sheetName, 'meta'));
+  if (chunkCountRaw === null) return null;
+
+  const chunkCount = Number(chunkCountRaw);
+  const chunkKeys = [];
+  for (let i = 0; i < chunkCount; i++) chunkKeys.push(sheetCacheKey_(sheetName, 'chunk' + i));
+  const chunks = cache.getAll(chunkKeys);
+
+  let json = '';
+  for (let i = 0; i < chunkCount; i++) {
+    const chunk = chunks[chunkKeys[i]];
+    if (chunk === undefined) return null; // a chunk expired independently of its meta key — treat as a full miss
+    json += chunk;
+  }
+
+  try {
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
+}
+
+function setCachedSheet_(sheetName, rows) {
+  const json = JSON.stringify(rows);
+  const chunks = [];
+  for (let i = 0; i < json.length; i += SHEET_CACHE_CHUNK_SIZE) {
+    chunks.push(json.slice(i, i + SHEET_CACHE_CHUNK_SIZE));
+  }
+
+  const payload = {};
+  chunks.forEach((chunk, i) => { payload[sheetCacheKey_(sheetName, 'chunk' + i)] = chunk; });
+  payload[sheetCacheKey_(sheetName, 'meta')] = String(chunks.length);
+
+  try {
+    CacheService.getScriptCache().putAll(payload, SHEET_CACHE_TTL_SECONDS);
+  } catch (e) {
+    // Caching is a pure performance optimization — if a sheet is too large
+    // even chunked, or CacheService is briefly unavailable, just skip it
+    // rather than fail the whole request.
+  }
+}
+
+// Only the meta key needs removing — once it's gone, getCachedSheet_
+// treats the sheet as an unconditional miss and re-reads from scratch.
+// Leftover chunk keys are harmless; they just expire on their own TTL.
+function invalidateCachedSheet_(sheetName) {
+  CacheService.getScriptCache().remove(sheetCacheKey_(sheetName, 'meta'));
+}
+
+// forceFresh skips the cache *read* (still repopulates it afterward) —
+// used by the client's Refresh button. Without this, "Refresh" only ever
+// bypassed the client-side localStorage cache; a change made directly in
+// Google Sheets (not through the app, so nothing invalidated the server
+// cache) could still look unchanged for up to SHEET_CACHE_TTL_SECONDS
+// even after an explicit Refresh, which defeats the point of the button.
+function sheetToRows_(sheetName, forceFresh) {
+  if (!forceFresh) {
+    const cached = getCachedSheet_(sheetName);
+    if (cached) return cached;
+  }
+
   const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) return [];
   const values = sheet.getDataRange().getValues();
   if (values.length < 1) return [];
   const headers = values[0].map(h => String(h).trim());
-  return values.slice(1)
+  const rows = values.slice(1)
     .filter(row => row.some(cell => cell !== '' && cell !== null))
     .map(row => {
       const obj = {};
       headers.forEach((h, i) => { if (h) obj[h] = row[i]; });
       return obj;
     });
+
+  setCachedSheet_(sheetName, rows);
+  return rows;
 }
 
 // Appends one row to `sheetName`, matching `dataObj` keys to the sheet's
@@ -130,6 +231,7 @@ function appendRowByHeaders_(sheetName, dataObj, aliasMap) {
   });
 
   sheet.appendRow(row);
+  invalidateCachedSheet_(sheetName);
 }
 
 // Creates `sheetName` with a header row if it doesn't exist yet. Used by
@@ -192,6 +294,7 @@ function updateRowByHeaders_(sheetName, matchColumn, matchValue, dataObj, aliasM
   });
 
   sheet.getRange(rowIdx, 1, 1, lastCol).setValues([newRow]);
+  invalidateCachedSheet_(sheetName);
   return true;
 }
 
@@ -205,6 +308,7 @@ function deleteRowByHeaders_(sheetName, matchColumn, matchValue) {
   if (rowIdx === -1) return false;
 
   sheet.deleteRow(rowIdx);
+  invalidateCachedSheet_(sheetName);
   return true;
 }
 
@@ -354,6 +458,8 @@ function decrementInventoryStock_(items) {
       const cell = sheet.getRange(rowIdx, stockColIdx + 1);
       cell.setValue((Number(cell.getValue()) || 0) - qty);
     });
+
+    invalidateCachedSheet_(INVENTORY_SHEET);
   });
 }
 
@@ -779,12 +885,12 @@ function doPost(e) {
   try {
     if (action === 'getSheet') {
       if (!body.sheet) return json_({ status: 'error', message: 'Missing sheet name.' });
-      return json_({ status: 'success', rows: sheetToRows_(body.sheet) });
+      return json_({ status: 'success', rows: sheetToRows_(body.sheet, !!body.force) });
     }
 
     if (action === 'getSheets') {
       const data = {};
-      (body.sheets || []).forEach(name => { data[name] = sheetToRows_(name); });
+      (body.sheets || []).forEach(name => { data[name] = sheetToRows_(name, !!body.force); });
       return json_({ status: 'success', data: data });
     }
 
