@@ -94,7 +94,7 @@
         return data;
     }
 
-    async function call(payload) {
+    async function callWithRetry(payload) {
         if (!RETRYABLE_ACTIONS.has(payload.action)) {
             return callOnce(payload);
         }
@@ -111,6 +111,25 @@
             }
         }
         throw lastErr;
+    }
+
+    // Apps Script Web Apps have real concurrency limits — firing several
+    // requests at once from this client is exactly what used to cause
+    // "connection error, works on retry" (see the batched-getSheets and
+    // separated-getDraftOrders comments elsewhere in this file and in
+    // admin.js/agent.js, both worked around at the call-site level). This
+    // queue is the one choke point every request already passes through
+    // (login, reads, writes — everything calls `call()`), so serializing
+    // it here guarantees this client never has more than one request in
+    // flight at a time, regardless of how many places in the app might
+    // otherwise try to fire calls concurrently — including ones that
+    // don't exist yet. A failed request's error still reaches its own
+    // caller normally; it just doesn't block the next queued request.
+    let requestQueue = Promise.resolve();
+    function call(payload) {
+        const result = requestQueue.then(() => callWithRetry(payload));
+        requestQueue = result.then(() => {}, () => {});
+        return result;
     }
 
     async function login(username, password) {
