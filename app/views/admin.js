@@ -66,24 +66,32 @@
             // below — it used to be awaited first, which just delayed the
             // start of the (already slow) data fetch for no reason. Now it
             // loads in parallel with everything else.
-            const [, sheets, drafts] = await Promise.all([
+            //
+            // getDraftOrders() is NOT in this Promise.all — it's the one
+            // request that's never cached client-side (see api.js: it's
+            // frequently-mutated, multi-user data, so a stale cache would
+            // actively mislead), which means it pays the full ~1.5-2s Apps
+            // Script round-trip on *every single navigation*, even when
+            // every sheet below is an instant local-cache hit. Since the
+            // shell re-runs this whole view fresh on every tab switch
+            // (see app/index.html's router), that made switching between
+            // Admin/Agent Hub feel slow even right after the first load,
+            // for no reason the rest of the view needed. It's now fetched
+            // separately, below, without blocking anything else.
+            const [, sheets] = await Promise.all([
                 loadChartJs(),
                 // One batched request for all sheet tabs instead of N
                 // separate ones — each doPost independently reopens the
                 // spreadsheet and Apps Script has real concurrency limits,
                 // so firing many at once was the main source of
-                // "connection error, works on retry". getDraftOrders()
-                // stays separate since it has its own (never-cached,
-                // per-user-filtered) semantics.
-                GK.api.getSheets(['Customers', 'Orders', 'Order Details', 'Products', 'Audit Log', 'Inventory'], { force }),
-                GK.api.getDraftOrders()
+                // "connection error, works on retry".
+                GK.api.getSheets(['Customers', 'Orders', 'Order Details', 'Products', 'Audit Log', 'Inventory'], { force })
             ]);
 
             rawCustomers = sheets['Customers'] || [];
             rawOrders = sheets['Orders'] || [];
             rawOrderItems = sheets['Order Details'] || [];
             rawProducts = sheets['Products'] || [];
-            draftOrders = drafts;
             const auditLog = sheets['Audit Log'] || [];
             rawInventory = sheets['Inventory'] || [];
 
@@ -121,6 +129,17 @@
 
             status.className = 'status-success';
             status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
+
+            // Draft Orders arrives after everything else, in the
+            // background — see the comment above on why it's split out.
+            // buildPendingNeededMap() (used by the Stock tab) also reads
+            // draftOrders, so filterStockTab() gets one more pass once the
+            // real data is in, in addition to renderDraftOrdersTab() itself.
+            GK.api.getDraftOrders().then(drafts => {
+                draftOrders = drafts;
+                renderDraftOrdersTab();
+                filterStockTab();
+            }).catch(err => console.error('Failed to load Draft Orders:', err));
         } catch (err) {
             console.error(err);
             status.className = 'status-error';
