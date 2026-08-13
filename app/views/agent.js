@@ -1395,6 +1395,8 @@
         const dateStr = normalizeSheetDate(order['Order Date']);
 
         const deliveryCharge = parseFloat(String(order['Delivery Cost'] ?? order['Delivery Charge'] ?? 0).replace(/[^0-9.-]+/g, '')) || 0;
+        const damageCost = parseFloat(String(order['Damage Cost'] ?? 0).replace(/[^0-9.-]+/g, '')) || 0;
+        const discount = parseFloat(String(order['Discount'] ?? 0).replace(/[^0-9.-]+/g, '')) || 0;
 
         let itemsSubtotal = 0;
         const rows = items.map((it, idx) => {
@@ -1417,11 +1419,22 @@
         }).join('');
 
         const sheetBillAmount = parseFloat(String(order['Bill Amout'] || order['Bill Amount'] || 0).replace(/[^0-9.-]+/g, ''));
-        const grandTotal = sheetBillAmount || (itemsSubtotal + deliveryCharge);
+        const baseAmount = sheetBillAmount || itemsSubtotal;
+        const grandTotal = baseAmount - damageCost + deliveryCharge - discount;
 
-        const deliveryRow = deliveryCharge > 0
-            ? `<div class="totals-row"><span>Delivery</span><span>₹${deliveryCharge.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>`
-            : `<div class="totals-row"><span>Delivery</span><span><span class="strike">₹50</span> <span class="free-tag">FREE</span></span></div>`;
+        const damageRow = damageCost > 0
+            ? `<div class="totals-row"><span>Damage Cost</span><span>-₹${damageCost.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>`
+            : '';
+
+        const deliveryRow = deliveryCharge === 0
+            ? `<div class="totals-row"><span>Delivery</span><span><span class="strike">₹50</span> <span class="free-tag">FREE</span></span></div>`
+            : (discount > 0 && deliveryCharge === discount
+                ? `<div class="totals-row"><span>Delivery</span><span><span class="strike">₹${deliveryCharge.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></span></div>`
+                : `<div class="totals-row"><span>Delivery</span><span>₹${deliveryCharge.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>`);
+
+        const discountRow = discount > 0
+            ? `<div class="totals-row"><span>Discount</span><span>-₹${discount.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>`
+            : '';
 
         return `
         <div class="bill-page">
@@ -1462,7 +1475,9 @@
 
                 <div class="bill-totals">
                     <div class="totals-row"><span>Subtotal</span><span>₹${itemsSubtotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>
+                    ${damageRow}
                     ${deliveryRow}
+                    ${discountRow}
                     <div class="totals-row grand"><span>Grand Total</span><span>₹${grandTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span></div>
                 </div>
 
