@@ -1,8 +1,12 @@
 /* ==========================================================================
    Go-Kirana Staff Console — API layer
-   Talks only to the Apps Script Web App below. The Sheet ID never appears
-   here or anywhere else in browser-visible code — it lives server-side in
-   apps-script/Code.gs. All data reads/writes require a valid session token.
+   Writes still go through the Apps Script Web App below (auth, validation,
+   formulas all live server-side in apps-script/Code.gs). Reads (getSheet/
+   getSheets) instead fetch the published Google Sheet directly via its
+   gviz endpoint — TEMPORARY while Apps Script cold-starts make the app feel
+   slow; see MEMORY for context. This requires the spreadsheet to be shared
+   "Anyone with the link – Viewer". Falls back to the Apps Script read path
+   if the direct fetch fails for any reason.
    ========================================================================== */
 (function (global) {
     'use strict';
@@ -10,6 +14,61 @@
     // Deployed Apps Script Web App /exec URL. Not secret (it's just an
     // endpoint) — every action except 'login' requires a valid session token.
     const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycby8S-xJfePRaCezAlM8onrl5FOSq4VC1l_JS0_pBwdznIM2NV1uwy2hgeGXbqAomsgYUA/exec';
+
+    // Read-only direct access to the published sheet — bypasses Apps
+    // Script entirely for getSheet/getSheets. See header comment.
+    const SHEET_ID = '1WNX0PqbLSDJ11ps2cuZaeYQC-w87KM5uUt5acPjJahI';
+
+    // gviz encodes date/datetime cells as the literal string
+    // "Date(y,m,d[,h,mi,s])" (month is 0-indexed) rather than a JSON date —
+    // convert to the same ISO-string shape the old Apps Script JSON path
+    // produced, since normalizeSheetDate()/`new Date(...)` call sites across
+    // the app already expect that.
+    function gvizDateToIso_(raw) {
+        const m = /^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)$/.exec(raw);
+        if (!m) return raw;
+        const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
+        return new Date(Date.UTC(y, mo, d, h || 0, mi || 0, s || 0)).toISOString();
+    }
+
+    // Parses a gviz /tq JSON response into the same shape sheetToRows_ in
+    // Code.gs produces: an array of { columnHeader: value, ... } objects,
+    // one per non-blank row.
+    function parseGvizTable_(text) {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start === -1 || end === -1) throw new Error('Unexpected sheet response');
+        const json = JSON.parse(text.substring(start, end + 1));
+        if (json.status === 'error') {
+            const msg = (json.errors && json.errors[0] && json.errors[0].detailed_message) || 'Sheet query failed';
+            throw new Error(msg);
+        }
+        // No fallback to c.id: a blank header means Code.gs's own reader
+        // (sheetToRows_) skips that column entirely, and columns past the
+        // real table often carry stray helper cells (e.g. a summary number
+        // parked off to the side) — falling back to "N"/"O"/... would leak
+        // those in as noise that never appeared in the old response shape.
+        const cols = (json.table.cols || []).map(c => String(c.label || '').trim());
+        return (json.table.rows || []).map(row => {
+            const obj = {};
+            (row.c || []).forEach((cell, i) => {
+                const header = cols[i];
+                if (!header) return;
+                if (!cell || cell.v === null || cell.v === undefined) { obj[header] = ''; return; }
+                obj[header] = (typeof cell.v === 'string' && cell.v.indexOf('Date(') === 0)
+                    ? gvizDateToIso_(cell.v)
+                    : cell.v;
+            });
+            return obj;
+        }).filter(obj => Object.keys(obj).some(k => obj[k] !== '' && obj[k] !== null));
+    }
+
+    async function fetchSheetDirect_(sheetName) {
+        const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}&headers=1`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Sheet fetch failed (${res.status})`);
+        return parseGvizTable_(await res.text());
+    }
 
     const SESSION_KEY = 'gk_session';
 
@@ -151,9 +210,13 @@
         return session.token;
     }
 
-    // Returns rows in the same shape the old gviz JSONP fetch produced:
-    // an array of { columnHeader: value, ... } objects. Pass {force:true}
-    // to bypass the cache (used by the shell's Refresh button).
+    // Returns rows as an array of { columnHeader: value, ... } objects,
+    // fetched directly from the published sheet (see fetchSheetDirect_
+    // above) so a slow/cold Apps Script no longer blocks reads. Pass
+    // {force:true} to bypass the client cache (used by the shell's Refresh
+    // button) — direct fetches always hit the sheet fresh, there's no
+    // server-side cache in this path to also bypass. Falls back to the
+    // authenticated Apps Script read if the direct fetch fails.
     async function getSheet(sheetName, opts) {
         const force = !!(opts && opts.force);
         const cacheKey = 'sheet:' + sheetName;
@@ -162,18 +225,21 @@
             if (cached) return cached.data;
         }
 
-        const token = requireToken();
-        // force also has to reach the server — otherwise it only bypasses
-        // this client-side cache, and the server's own cache (see
-        // sheetToRows_ in Code.gs) could still hand back a change made
-        // directly in Google Sheets rather than through the app, which
-        // would make the "Refresh" button not actually refresh.
-        const data = await call({ action: 'getSheet', token, sheet: sheetName, force });
-        if (!data || data.status !== 'success') {
-            throw new Error((data && data.message) || `Failed to load "${sheetName}"`);
+        requireToken(); // still gate reads on being logged into the app
+
+        let rows;
+        try {
+            rows = await fetchSheetDirect_(sheetName);
+        } catch (e) {
+            const token = requireToken();
+            const data = await call({ action: 'getSheet', token, sheet: sheetName, force });
+            if (!data || data.status !== 'success') {
+                throw new Error((data && data.message) || `Failed to load "${sheetName}"`);
+            }
+            rows = data.rows || [];
         }
-        writeCache(cacheKey, data.rows || []);
-        return data.rows || [];
+        writeCache(cacheKey, rows);
+        return rows;
     }
 
     // Fetch several tabs, checking each one's OWN cache entry first and
@@ -201,16 +267,25 @@
 
         if (!missing.length) return result;
 
-        const token = requireToken();
-        // See getSheet() above — force must reach the server too, or it
-        // only bypasses this client-side cache and not the server's own.
-        const data = await call({ action: 'getSheets', token, sheets: missing, force: !!force });
-        if (!data || data.status !== 'success') {
-            throw new Error((data && data.message) || 'Failed to load sheet data');
+        requireToken(); // still gate reads on being logged into the app
+
+        let fetched;
+        try {
+            const rowsPerSheet = await Promise.all(missing.map(fetchSheetDirect_));
+            fetched = {};
+            missing.forEach((name, i) => { fetched[name] = rowsPerSheet[i]; });
+        } catch (e) {
+            const token = requireToken();
+            const data = await call({ action: 'getSheets', token, sheets: missing, force: !!force });
+            if (!data || data.status !== 'success') {
+                throw new Error((data && data.message) || 'Failed to load sheet data');
+            }
+            fetched = data.data || {};
         }
-        Object.keys(data.data || {}).forEach(name => {
-            writeCache('sheet:' + name, data.data[name]);
-            result[name] = data.data[name];
+
+        Object.keys(fetched).forEach(name => {
+            writeCache('sheet:' + name, fetched[name]);
+            result[name] = fetched[name];
         });
         return result;
     }
