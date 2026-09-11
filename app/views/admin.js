@@ -1861,8 +1861,12 @@
         const pricePerUnitTrue = totalUnits > 0 ? packPrice / totalUnits : 0;
         const actualPricePerUnitTrue = totalUnits > 0 ? packActualPrice / totalUnits : 0;
 
+        // Shopkeeper's perspective: they pay Pack Price to buy the pack, then
+        // can sell its contents on for Item Value (MRP × Total Units) — so
+        // margin is what they'd make over what they paid, and % is against
+        // that cost (Pack Price), not against Item Value.
         const itemValue = mrp * totalUnits; // whole pack's value at MRP
-        const grossMargin = packPrice - itemValue; // pack price actually charged vs. its MRP value
+        const grossMargin = itemValue - packPrice;
         const grossMarginPct = packPrice ? (grossMargin / packPrice) * 100 : 0;
 
         const perUnitMargin = pricePerUnitTrue - actualPricePerUnitTrue;
