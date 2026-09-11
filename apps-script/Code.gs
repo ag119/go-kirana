@@ -312,6 +312,44 @@ function deleteRowByHeaders_(sheetName, matchColumn, matchValue) {
   return true;
 }
 
+// Deletes EVERY row where `matchColumn` === `matchValue` (unlike
+// deleteRowByHeaders_, which only removes the first match) — used by
+// handleUpdateOrder_ to clear all of an order's existing Order Details rows
+// before re-inserting the edited item list. Scans bottom-to-top so deleting
+// a row never shifts the index of a row still to be checked.
+function deleteAllRowsByColumn_(sheetName, matchColumn, matchValue) {
+  const sheet = getSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const colIdx = headers.findIndex(h => normalizeHeader_(h) === normalizeHeader_(matchColumn));
+  if (colIdx === -1) return 0;
+
+  let deletedCount = 0;
+  for (let r = sheet.getLastRow(); r >= 2; r--) {
+    if (String(sheet.getRange(r, colIdx + 1).getValue()) === String(matchValue)) {
+      sheet.deleteRow(r);
+      deletedCount++;
+    }
+  }
+  if (deletedCount) invalidateCachedSheet_(sheetName);
+  return deletedCount;
+}
+
+// Returns the actual header text in `sheet` matching any of `aliasNames`
+// (case/punctuation-insensitive), or null if none is present. Order-related
+// sheets are read defensively elsewhere in this file with a fallback chain
+// (e.g. the client's `o['Id'] || o['Order ID']`) since the exact header
+// wasn't known when this backend was written — this is the write-path
+// equivalent, letting handleUpdateOrder_ find the real column once instead
+// of guessing a single literal name.
+function resolveHeaderAlias_(sheet, aliasNames) {
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  return headers.find(h => aliasNames.some(a => normalizeHeader_(a) === normalizeHeader_(h))) || null;
+}
+
 // Apps Script does not serialize concurrent doPost executions, so any
 // find-row-then-mutate sequence is a TOCTOU risk once multiple staff can
 // write concurrently. Wrap every Draft Orders mutation in this.
@@ -418,6 +456,94 @@ function handleCreateOrder_(body) {
   });
 
   return { status: 'success', orderId: body.orderId };
+}
+
+// Admin-only: edits an already-recorded Order in place. Replaces its Order
+// Details rows entirely with the newly-submitted item list (add/remove/
+// change quantity all go through this same full-replace, rather than a
+// diff), and optionally updates the editable Orders-row fields
+// (Fulfillment Date / Delivery Charge / Damage Cost). Bill Amount / Actual
+// Cost / Profit are formula-derived in the "Orders" sheet (see the comment
+// on ORDER_ITEM_HEADER_ALIASES) so they recalculate on their own once the
+// underlying Order Details rows change — nothing here writes to them
+// directly. Inventory.Stock is reconciled for the net quantity change per
+// SKU (see computeOrderItemDelta_) so re-editing an order doesn't silently
+// leave stock counts wrong.
+function computeOrderItemDelta_(oldItems, newItems) {
+  const deltaBySku = {};
+  (oldItems || []).forEach(it => {
+    const sku = String(it['SKU'] || '').trim();
+    if (!sku || sku === 'CUSTOM') return;
+    const qty = Number(it['Quantity']) || 0;
+    deltaBySku[sku] = (deltaBySku[sku] || 0) - qty;
+  });
+  (newItems || []).forEach(it => {
+    const sku = String(it.sku || '').trim();
+    if (!sku || sku === 'CUSTOM') return;
+    const qty = Number(it.quantity) || 0;
+    deltaBySku[sku] = (deltaBySku[sku] || 0) + qty;
+  });
+  return Object.keys(deltaBySku)
+    .filter(sku => deltaBySku[sku] !== 0)
+    .map(sku => ({ sku: sku, quantity: deltaBySku[sku] }));
+}
+
+function handleUpdateOrder_(session, body) {
+  if (session.role !== 'admin') return { status: 'error', message: 'Only admin can edit orders.' };
+
+  const orderId = String(body.orderId || '').trim();
+  if (!orderId) return { status: 'error', message: 'Missing order ID.' };
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (!items.length) return { status: 'error', message: 'Order must have at least one item.' };
+
+  const result = withLock_(() => {
+    const ordersSheet = getSpreadsheet_().getSheetByName('Orders');
+    if (!ordersSheet) throw new Error('Sheet tab "Orders" not found.');
+
+    const orderIdCol = resolveHeaderAlias_(ordersSheet, ['Id', 'Order ID', 'OrderId']);
+    if (!orderIdCol || findRowIndexByValue_(ordersSheet, orderIdCol, orderId) === -1) {
+      return { status: 'error', message: 'Order not found.' };
+    }
+
+    const detailsSheet = getSpreadsheet_().getSheetByName('Order Details');
+    if (!detailsSheet) throw new Error('Sheet tab "Order Details" not found.');
+    const detailOrderIdCol = resolveHeaderAlias_(detailsSheet, ['Order ID', 'Id', 'OrderId']) || 'Order ID';
+
+    const oldItems = sheetToRows_('Order Details').filter(r => String(r[detailOrderIdCol] || '').trim() === orderId);
+
+    const orderDataObj = {};
+    if (body.hasOwnProperty('fulfillmentDate')) orderDataObj.fulfillmentDate = body.fulfillmentDate;
+    if (body.hasOwnProperty('deliveryCharge')) orderDataObj.deliveryCharge = Number(body.deliveryCharge) || 0;
+    if (body.hasOwnProperty('damageCost')) orderDataObj.damageCost = Number(body.damageCost) || 0;
+    if (Object.keys(orderDataObj).length) {
+      updateRowByHeaders_('Orders', orderIdCol, orderId, orderDataObj, ORDER_HEADER_ALIASES);
+    }
+
+    deleteAllRowsByColumn_('Order Details', detailOrderIdCol, orderId);
+    items.forEach(item => {
+      appendRowByHeaders_('Order Details', {
+        orderId: orderId,
+        sku: item.sku || 'CUSTOM',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        calculatedTotal: item.calculatedTotal,
+        actualPrice: item.actualPrice,
+        actualCost: item.actualCost
+      }, ORDER_ITEM_HEADER_ALIASES);
+    });
+
+    logAudit_(session, 'update_order', orderId, `Edited order ${orderId}: ${oldItems.length} → ${items.length} item row(s)`);
+    return { status: 'success', oldItems: oldItems };
+  });
+
+  if (result.status !== 'success') return result;
+
+  // Outside the lock above (that one guards Orders + Order Details;
+  // decrementInventoryStock_ takes its own lock for the Inventory sheet —
+  // see the comment on that function for why these are never nested).
+  decrementInventoryStock_(computeOrderItemDelta_(result.oldItems, items));
+  return { status: 'success', orderId: orderId };
 }
 
 const INVENTORY_SHEET = 'Inventory';
@@ -898,6 +1024,10 @@ function doPost(e) {
       const result = handleCreateOrder_(body);
       if (result.status === 'success') decrementInventoryStock_(body.items || []);
       return json_(result);
+    }
+
+    if (action === 'updateOrder') {
+      return json_(handleUpdateOrder_(session, body));
     }
 
     if (action === 'getDraftOrders') {

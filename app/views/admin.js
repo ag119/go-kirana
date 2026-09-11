@@ -35,10 +35,46 @@
     let invSelectedSku = null;
     let invSelectedName = null;
     let editingInventorySku = null;
-    let bulkInventoryQueue = [];
+
+    // Edit Order (admin-only, edits an already-recorded real Order)
+    let editingOrderId = null;
+    let editOrderCartItems = [];
+
+    // Bulk-add queues (Inventory restock + Products catalog): queued items
+    // only actually reach the sheet once their "Submit"/"Add All" button is
+    // clicked — before that they used to live in a plain in-memory array,
+    // which the shell's router silently wipes on every navigation (this view
+    // is "Loaded fresh ... on every navigation"). An admin who queued items
+    // and then switched tabs, hit Refresh, or reloaded before submitting lost
+    // them with no error at all — they'd just never show up anywhere. Persist
+    // both queues to localStorage (same pattern as orders.js's local-only
+    // drafts) so they survive navigation/reload and only vanish once actually
+    // submitted.
+    const INVENTORY_QUEUE_STORAGE_KEY = 'gk_bulk_inventory_queue';
+    const PRODUCT_QUEUE_STORAGE_KEY = 'gk_bulk_product_queue';
+
+    function loadQueueFromStorage_(key) {
+        try {
+            const raw = localStorage.getItem(key);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function persistQueue_(key, queue) {
+        try {
+            localStorage.setItem(key, JSON.stringify(queue));
+        } catch (e) {
+            alert('⚠️ Could not save this item — your browser storage may be full.');
+        }
+    }
+
+    let bulkInventoryQueue = loadQueueFromStorage_(INVENTORY_QUEUE_STORAGE_KEY);
 
     // Add Products state
-    let productQueue = [];
+    let productQueue = loadQueueFromStorage_(PRODUCT_QUEUE_STORAGE_KEY);
 
     function loadChartJs() {
         if (window.Chart) return Promise.resolve();
@@ -126,6 +162,12 @@
             renderDraftOrdersTab();
             renderAuditLogTab(auditLog);
             renderInventoryMgmtList(rawInventory);
+            // Re-render any queued-but-not-yet-submitted Inventory/Products
+            // rows recovered from localStorage (see persistQueue_ above) so
+            // they're visibly waiting for the admin right away, not only
+            // after the next add/remove on that tab.
+            renderInventoryQueue();
+            renderProductQueue();
 
             status.className = 'status-success';
             status.innerHTML = `✅ Store synced live at ${new Date().toLocaleTimeString()}`;
@@ -1427,6 +1469,7 @@
             unitsInCase: unitsInCase,
             sellingPrice: sellingPrice
         });
+        persistQueue_(INVENTORY_QUEUE_STORAGE_KEY, bulkInventoryQueue);
 
         document.getElementById('invItemSearchInput').value = '';
         document.getElementById('invStockInput').value = '';
@@ -1474,6 +1517,7 @@
 
     function removeInventoryQueueItem(idx) {
         bulkInventoryQueue.splice(idx, 1);
+        persistQueue_(INVENTORY_QUEUE_STORAGE_KEY, bulkInventoryQueue);
         renderInventoryQueue();
     }
 
@@ -1492,6 +1536,7 @@
         try {
             await GK.api.bulkAddInventoryStock({ items: bulkInventoryQueue });
             bulkInventoryQueue = [];
+            persistQueue_(INVENTORY_QUEUE_STORAGE_KEY, bulkInventoryQueue);
             renderInventoryQueue();
             await refreshInventoryMgmt();
         } catch (err) {
@@ -1725,6 +1770,7 @@
             mrp: parseFloat(document.getElementById('prodMrpInput').value) || 0,
             searchKeywords: document.getElementById('prodSearchKeywordsInput').value.trim()
         });
+        persistQueue_(PRODUCT_QUEUE_STORAGE_KEY, productQueue);
 
         PRODUCT_FORM_FIELD_IDS.forEach(id => { document.getElementById(id).value = ''; });
         document.getElementById('prodSkuInfo').style.display = 'none';
@@ -1763,6 +1809,7 @@
 
     function removeProductQueueItem(idx) {
         productQueue.splice(idx, 1);
+        persistQueue_(PRODUCT_QUEUE_STORAGE_KEY, productQueue);
         renderProductQueue();
     }
 
@@ -1777,6 +1824,7 @@
         try {
             await GK.api.bulkAddProducts({ items: productQueue });
             productQueue = [];
+            persistQueue_(PRODUCT_QUEUE_STORAGE_KEY, productQueue);
             renderProductQueue();
             await refreshProductsAfterAdd();
         } catch (err) {
@@ -1853,10 +1901,150 @@
                 <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border); text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
                     <button class="btn-analytics" onclick="viewOrderBill('${orderId}')">🧾 View Bill</button>
                     <button class="btn-whatsapp" onclick="shareBillOnWhatsApp('${orderId}', this)">📲 Send via WhatsApp</button>
+                    <button class="btn-analytics" onclick="openEditOrderModal('${orderId}')">✏️ Edit Order</button>
                 </div>
             </div>
             `;
         });
+    }
+
+    // --- EDIT EXISTING ORDER (admin-only) -----------------------------------
+    // Unlike the Draft Orders / New Order flows above (which build up an
+    // order before it's ever written to the sheet), this edits an order
+    // that's already in the "Orders"/"Order Details" sheets — see
+    // handleUpdateOrder_ in Code.gs. Saving always sends the FULL current
+    // item list; the backend replaces the order's Order Details rows
+    // outright rather than diffing, so adding, removing, and changing a
+    // quantity all go through this same save.
+    function openEditOrderModal(orderId) {
+        const order = billOrderById(orderId);
+        if (!order) { alert('Order not found.'); return; }
+
+        editingOrderId = orderId;
+        const items = billItemsForOrder(orderId);
+        editOrderCartItems = items.map(it => {
+            const sku = (it['SKU'] || '').trim();
+            const prod = sku ? productMapBySKU[sku] : null;
+            const qty = parseFloat(it['Quantity']) || 1;
+            // Prefer the live catalog price/cost over what was billed at
+            // order time, same as adding a fresh item to this cart would —
+            // an admin editing an order is very likely correcting a
+            // quantity, not intentionally preserving an old price.
+            const unitPrice = prod ? prod.price : (toNum(it['Unit Price']) || 0);
+            const costPrice = prod ? (prod.costPrice || 0) : (toNum(it['Actual Price']) || 0);
+            return {
+                sku: sku || null,
+                name: prod ? prod.name : (sku || it['SKU'] || 'Item'),
+                qty: qty,
+                unitPrice: unitPrice,
+                costPrice: costPrice
+            };
+        });
+
+        document.getElementById('editOrderId').innerText = `✏️ Edit Order ${orderId}`;
+        document.getElementById('editOrderCustMeta').innerText = `${order['CustomerName'] || 'Customer'} • ${normalizeSheetDate(order['Order Date'])}`;
+        document.getElementById('editOrderFulfillmentDate').value = normalizeSheetDate(order['Fulfillment Date'] || order['Fulfilment Date'] || order['Order Date']);
+        document.getElementById('editOrderDeliveryCharge').value = toNum(order['Delivery Cost'] ?? order['Delivery Charge']);
+        document.getElementById('editOrderDamageCost').value = toNum(order['Damage Cost']);
+
+        renderEditOrderCart();
+        document.getElementById('editOrderModal').classList.add('active');
+    }
+
+    function addEditOrderItem() {
+        const inputVal = document.getElementById('editOrderBuilderItemName').value.trim();
+        const qty = parseInt(document.getElementById('editOrderBuilderQty').value) || 1;
+        if (!inputVal) return;
+
+        const matched = findBestProductMatch(inputVal);
+        if (matched) {
+            editOrderCartItems.push({ sku: matched.sku, name: matched.name, qty, unitPrice: matched.price, costPrice: matched.costPrice || 0 });
+        } else {
+            editOrderCartItems.push({ sku: null, name: inputVal, qty, unitPrice: null, costPrice: 0 });
+        }
+
+        document.getElementById('editOrderBuilderItemName').value = '';
+        document.getElementById('editOrderBuilderQty').value = '1';
+        const dd = document.getElementById('editOrderDropdown');
+        if (dd) dd.style.display = 'none';
+        renderEditOrderCart();
+    }
+
+    function renderEditOrderCart() {
+        const container = document.getElementById('editOrderCartItemsList');
+        let estTotal = 0;
+
+        if (!editOrderCartItems.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No items.</p>';
+            document.getElementById('editOrderCartEstimatedTotal').innerText = '₹0';
+            return;
+        }
+
+        container.innerHTML = editOrderCartItems.map((item, idx) => {
+            const itemTotal = item.unitPrice ? (item.unitPrice * item.qty) : 0;
+            estTotal += itemTotal;
+            return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                <div>
+                    <strong>${item.name}</strong> × ${item.qty}
+                    <div style="font-size:0.75rem; color:var(--text-muted);">${item.unitPrice ? `₹${item.unitPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}/unit` : 'Price on request'}</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <strong>${item.unitPrice ? `₹${itemTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}` : 'N/A'}</strong>
+                    <button onclick="removeEditOrderCartItem(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button>
+                </div>
+            </div>
+            `;
+        }).join('');
+
+        document.getElementById('editOrderCartEstimatedTotal').innerText = `₹${estTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}`;
+    }
+
+    function removeEditOrderCartItem(idx) {
+        editOrderCartItems.splice(idx, 1);
+        renderEditOrderCart();
+    }
+
+    async function saveEditOrder() {
+        if (!editingOrderId) return;
+        if (!editOrderCartItems.length) {
+            alert('An order must have at least one item.');
+            return;
+        }
+
+        const fulfillmentDate = document.getElementById('editOrderFulfillmentDate').value;
+        const deliveryCharge = parseFloat(document.getElementById('editOrderDeliveryCharge').value) || 0;
+        const damageCost = parseFloat(document.getElementById('editOrderDamageCost').value) || 0;
+
+        try {
+            await GK.api.updateOrder({
+                orderId: editingOrderId,
+                fulfillmentDate: fulfillmentDate,
+                deliveryCharge: deliveryCharge,
+                damageCost: damageCost,
+                items: editOrderCartItems.map(i => ({
+                    sku: i.sku || 'CUSTOM',
+                    quantity: i.qty,
+                    unitPrice: i.unitPrice,
+                    actualPrice: i.costPrice,
+                    calculatedTotal: (i.qty * (i.unitPrice || 0)),
+                    actualCost: (i.qty * (i.costPrice || 0))
+                }))
+            });
+
+            closeModal('editOrderModal');
+            editingOrderId = null;
+            editOrderCartItems = [];
+
+            // Order edits ripple into Bill Amount/Profit (formula-derived,
+            // see Code.gs) and Inventory stock, both of which feed the
+            // dashboard KPIs and Stock tab — a full resync (same path as
+            // the shell's Refresh button) keeps those correct rather than
+            // just patching the Orders Stream card in place.
+            await fetchLiveData(true);
+        } catch (err) {
+            alert('⚠️ ' + (err.message || 'Failed to save order changes.'));
+        }
     }
 
     // --- CUSTOMER BILL / RECEIPT -------------------------------------------
@@ -2606,6 +2794,119 @@
 
     function toggleCockpit(i){ var el=document.getElementById('ck-'+i); if(el) el.style.display = (el.style.display==='none'||!el.style.display) ? 'table-row' : 'none'; }
 
+    // --- SKU TRACE (which orders/customers a product went out in) ----------
+    // Pure client-side report over already-loaded rawOrders/rawOrderItems —
+    // no backend action needed, same data the Orders Stream and bills use.
+    function handleSkuTraceSearchInput(inputEl) {
+        const dropdown = document.getElementById('skuTraceDropdown');
+        if (!dropdown) return;
+
+        const query = inputEl.value.trim();
+        if (!query) { dropdown.style.display = 'none'; return; }
+
+        const scoredMatches = rawProducts
+            .map(p => ({ product: p, score: getMatchScore(p, query) }))
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
+
+        if (!scoredMatches.length) { dropdown.style.display = 'none'; return; }
+
+        dropdown.innerHTML = scoredMatches.map(m => {
+            const p = m.product;
+            const sku = (p['SKU'] || '').trim();
+            const name = p['Item Name'] || p['Standard Name'] || sku;
+            return `
+            <div class="custom-suggest-item" onclick="selectSkuTraceProduct('${sku.replace(/'/g, "\\'")}', '${name.replace(/'/g, "\\'")}')">
+                <span>${name}</span>
+                <span style="color:var(--text-muted); font-size:0.75rem;">${sku}</span>
+            </div>
+            `;
+        }).join('');
+
+        dropdown.style.display = 'block';
+    }
+
+    function selectSkuTraceProduct(sku, name) {
+        document.getElementById('skuTraceSearchInput').value = name;
+        const dropdown = document.getElementById('skuTraceDropdown');
+        if (dropdown) dropdown.style.display = 'none';
+        traceSku(sku);
+    }
+
+    function traceSku(sku) {
+        const orderById = {};
+        rawOrders.forEach(o => { orderById[String(o['Id'] || o['Order ID'] || '').trim()] = o; });
+
+        const matches = rawOrderItems.filter(it => (it['SKU'] || '').trim() === sku);
+
+        const rows = matches.map(it => {
+            const orderId = String(it['Order ID'] || it['Id'] || '').trim();
+            const order = orderById[orderId];
+            const qty = parseFloat(it['Quantity']) || 0;
+            const unitPrice = toNum(it['Unit Price']);
+            const total = toNum(it['Calculated Total']) || (qty * unitPrice);
+            return {
+                orderId,
+                date: order ? normalizeSheetDate(order['Order Date']) : '',
+                customerName: order ? (order['CustomerName'] || 'Unknown') : 'Unknown (order not found)',
+                qty, unitPrice, total
+            };
+        }).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.orderId.localeCompare(a.orderId));
+
+        renderSkuTraceResults(sku, rows);
+    }
+
+    function renderSkuTraceResults(sku, rows) {
+        const summary = document.getElementById('skuTraceSummary');
+        const container = document.getElementById('skuTraceResults');
+        const prod = productMapBySKU[sku];
+        const name = prod ? prod.name : sku;
+
+        if (!rows.length) {
+            summary.style.display = 'none';
+            container.innerHTML = `<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No past orders found containing "${name}" (SKU: ${sku}).</p>`;
+            return;
+        }
+
+        const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+        const totalRevenue = rows.reduce((s, r) => s + r.total, 0);
+        const uniqueCustomers = new Set(rows.map(r => r.customerName)).size;
+
+        summary.style.display = 'block';
+        summary.innerHTML = `
+            <strong>${name}</strong> <span style="color:var(--text-muted); font-family:monospace;">(${sku})</span><br>
+            📦 ${rows.length} order${rows.length === 1 ? '' : 's'} · 🔢 ${totalQty} units total · 👥 ${uniqueCustomers} customer${uniqueCustomers === 1 ? '' : 's'} · 💰 ₹${totalRevenue.toLocaleString('en-IN', {maximumFractionDigits:2})} revenue
+        `;
+
+        container.innerHTML = `
+        <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead>
+                <tr style="text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); text-transform:uppercase; font-size:0.7rem; letter-spacing:0.04em;">
+                    <th style="padding:8px;">Order ID</th>
+                    <th style="padding:8px;">Date</th>
+                    <th style="padding:8px;">Customer</th>
+                    <th style="padding:8px; text-align:center;">Qty</th>
+                    <th style="padding:8px; text-align:right;">Unit Price</th>
+                    <th style="padding:8px; text-align:right;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows.map(r => `
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:8px; font-weight:700;">${r.orderId}</td>
+                    <td style="padding:8px; white-space:nowrap;">${r.date}</td>
+                    <td style="padding:8px;">${r.customerName}</td>
+                    <td style="padding:8px; text-align:center;">${r.qty}</td>
+                    <td style="padding:8px; text-align:right;">₹${r.unitPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                    <td style="padding:8px; text-align:right; font-weight:700;">₹${r.total.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+        </div>`;
+    }
+
     function switchTab(tabId) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
         document.querySelectorAll('.pill-btn').forEach(el => el.classList.remove('active'));
@@ -2672,7 +2973,13 @@
         checkProductSku,
         addProductQueueItem,
         removeProductQueueItem,
-        submitProductQueue
+        submitProductQueue,
+        openEditOrderModal,
+        addEditOrderItem,
+        removeEditOrderCartItem,
+        saveEditOrder,
+        handleSkuTraceSearchInput,
+        selectSkuTraceProduct
     });
 
     // The shell calls GK_viewInit itself right after this script loads —

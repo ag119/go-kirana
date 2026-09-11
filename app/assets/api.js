@@ -300,6 +300,16 @@
         return data;
     }
 
+    async function updateOrder(payload) {
+        const token = requireToken();
+        const data = await call(Object.assign({ action: 'updateOrder', token }, payload));
+        if (!data || data.status !== 'success') {
+            throw new Error((data && data.message) || 'Failed to update order.');
+        }
+        clearCache(); // Orders/Order Details/Inventory stats just changed server-side
+        return data;
+    }
+
     // Draft Orders: frequently-mutated, multi-user data, so this always
     // hits the network — a stale localStorage cache here would actively
     // mislead (e.g. admin deletes a draft, agent's view stays wrong for
@@ -432,6 +442,7 @@
         getSheet,
         getSheets,
         createOrder,
+        updateOrder,
         getDraftOrders,
         createDraftOrder,
         updateDraftOrder,
