@@ -342,85 +342,107 @@
 
         <!-- TAB: ADD PRODUCTS (bulk add/update to the Products catalog sheet) -->
         <div id="addProductsTab" class="tab-content">
-            <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto 24px auto;">
-                <div class="section-title" style="margin-bottom:6px;">
-                    <span>➕ Add / Update Products</span>
-                </div>
-                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
-                    Fill in a product's details and add it to the list below — build up as many as you like, then submit them all in one go. If a SKU you enter already exists, submitting will update that product instead of creating a duplicate.
-                </p>
+            <div class="section-title">
+                <span>📦 Product Catalog</span>
+            </div>
 
-                <datalist id="existingSkuList"></datalist>
-                <datalist id="productCategoryList"></datalist>
-                <datalist id="uomList"></datalist>
-                <datalist id="packagingTypeList"></datalist>
+            <div class="two-col-layout">
+                <!-- LEFT: Add / Update form -->
+                <div style="background: var(--card-bg); border: 1px solid var(--border); padding: 24px; border-radius: var(--radius-lg);">
+                    <div class="mode-toggle">
+                        <button type="button" id="prodModeAddBtn" class="active" onclick="setProductFormMode('add')">➕ Add New Product</button>
+                        <button type="button" id="prodModeUpdateBtn" onclick="setProductFormMode('update')">✏️ Update Existing</button>
+                    </div>
 
-                <div class="form-row-3">
-                    <div>
+                    <!-- ADD mode: type a brand-new SKU -->
+                    <div id="prodAddSkuGroup" class="form-group">
                         <label>SKU *</label>
-                        <input type="text" id="prodSkuInput" class="input-standard" list="existingSkuList" placeholder="Type new SKU or pick existing" onchange="checkProductSku()">
+                        <input type="text" id="prodSkuInput" class="input-standard" list="existingSkuList" placeholder="Type a new SKU" onchange="checkProductSku()">
+                        <div id="prodSkuInfo" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 12px; margin-top:10px; font-size:0.82rem;"></div>
                     </div>
-                    <div>
-                        <label>Item Name *</label>
-                        <input type="text" id="prodItemNameInput" class="input-standard" placeholder="e.g. Parle-G ₹5 PACK - 24 Units">
+
+                    <!-- UPDATE mode: search + pick an existing product -->
+                    <div id="prodUpdateSearchGroup" class="form-group" style="display:none;">
+                        <label>Search Product to Update *</label>
+                        <div class="custom-suggest-container">
+                            <input type="text" id="prodUpdateSearchInput" class="input-standard" placeholder="Type product name, SKU, or keyword..." oninput="handleProductUpdateSearchInput(this)" onfocus="handleProductUpdateSearchInput(this)">
+                            <div id="prodUpdateDropdown" class="custom-suggest-dropdown"></div>
+                        </div>
+                        <div id="prodUpdateSelectedInfo" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 12px; margin-top:10px; font-size:0.82rem;"></div>
                     </div>
-                    <div>
-                        <label>Standard Name</label>
-                        <input type="text" id="prodStandardNameInput" class="input-standard" placeholder="e.g. Parle-G">
+
+                    <div id="prodFormFields">
+                        <div class="form-group">
+                            <label>Item Name *</label>
+                            <input type="text" id="prodItemNameInput" class="input-standard" placeholder="e.g. Parle-G ₹5 PACK - 24 Units">
+                        </div>
+                        <div class="form-group">
+                            <label>Standard Name</label>
+                            <input type="text" id="prodStandardNameInput" class="input-standard" placeholder="e.g. Parle-G">
+                        </div>
+                        <div class="form-group">
+                            <label>Item Category</label>
+                            <input type="text" id="prodCategoryInput" class="input-standard" list="productCategoryList" placeholder="e.g. Biscuits">
+                        </div>
+                        <div class="form-group">
+                            <label>Unit of Measurement</label>
+                            <input type="text" id="prodUomInput" class="input-standard" list="uomList" placeholder="e.g. Pack">
+                        </div>
+                        <div class="form-group">
+                            <label>Total Units</label>
+                            <input type="number" id="prodUnitsPerPackageInput" class="input-standard" min="0" placeholder="e.g. 24" oninput="updateProductMarginPreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>Packaging Type</label>
+                            <input type="text" id="prodPackagingInput" class="input-standard" list="packagingTypeList" placeholder="e.g. Pouch">
+                        </div>
+                        <div class="form-group">
+                            <label>MRP (₹)</label>
+                            <input type="number" id="prodMrpInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 110" oninput="updateProductMarginPreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>Price per Unit (₹)</label>
+                            <input type="number" id="prodPricePerUnitInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 108" oninput="updateProductMarginPreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>Actual Price (₹)</label>
+                            <input type="number" id="prodActualPriceInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 104.17" oninput="updateProductMarginPreview()">
+                        </div>
+                        <div class="form-group">
+                            <label>Search Keywords</label>
+                            <input type="text" id="prodSearchKeywordsInput" class="input-standard" placeholder="comma-separated, e.g. parle, glucose, biscuit">
+                        </div>
+
+                        <div id="prodMarginPreview" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin-bottom:16px; font-size:0.82rem;"></div>
+
+                        <button class="btn-submit" id="prodFormAddBtn" onclick="addProductQueueItem()" style="width:100%;">➕ Add to List</button>
                     </div>
+
+                    <div style="margin-top:24px; padding-top:20px; border-top:1px dashed var(--border);">
+                        <div class="section-title" style="font-size:0.95rem; margin-bottom:10px;">
+                            <span>🧾 Items to Submit</span>
+                            <span style="font-size:0.8rem; color:var(--text-muted);" id="prodQueueCount">0 Items</span>
+                        </div>
+                        <div id="prodQueueList" style="margin-bottom:16px;"><p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p></div>
+                        <button class="whatsapp-send-btn" id="prodQueueSubmitBtn" onclick="submitProductQueue()" disabled>🚀 Submit Changes</button>
+                    </div>
+
+                    <datalist id="existingSkuList"></datalist>
+                    <datalist id="productCategoryList"></datalist>
+                    <datalist id="uomList"></datalist>
+                    <datalist id="packagingTypeList"></datalist>
                 </div>
 
-                <div id="prodSkuInfo" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px 14px; margin:14px 0; font-size:0.85rem;"></div>
-
-                <div class="form-row-3" style="margin-top:14px;">
-                    <div>
-                        <label>Item Category</label>
-                        <input type="text" id="prodCategoryInput" class="input-standard" list="productCategoryList" placeholder="e.g. Biscuits">
+                <!-- RIGHT: full catalog, with computed item value / margin -->
+                <div>
+                    <div class="search-box">
+                        <input type="text" id="prodCatalogSearch" placeholder="Search catalog by name, SKU, or category..." onkeyup="filterProductCatalogList()">
                     </div>
-                    <div>
-                        <label>Unit of Measurement</label>
-                        <input type="text" id="prodUomInput" class="input-standard" list="uomList" placeholder="e.g. Pack">
+                    <div class="section-title" style="margin-top:14px;">
+                        <span>📋 All Products</span>
+                        <span style="font-size:0.8rem; color:var(--text-muted);" id="prodCatalogCount">0 Items</span>
                     </div>
-                    <div>
-                        <label>Packaging Type</label>
-                        <input type="text" id="prodPackagingInput" class="input-standard" list="packagingTypeList" placeholder="e.g. Pouch">
-                    </div>
-                </div>
-
-                <div class="form-row-3" style="margin-top:14px;">
-                    <div>
-                        <label>Units per Package</label>
-                        <input type="number" id="prodUnitsPerPackageInput" class="input-standard" min="0" placeholder="e.g. 24">
-                    </div>
-                    <div>
-                        <label>Price per Unit (₹)</label>
-                        <input type="number" id="prodPricePerUnitInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 108">
-                    </div>
-                    <div>
-                        <label>Actual Price (₹)</label>
-                        <input type="number" id="prodActualPriceInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 104.17">
-                    </div>
-                </div>
-
-                <div class="form-group" style="margin-top:14px;">
-                    <label>MRP (₹)</label>
-                    <input type="number" id="prodMrpInput" class="input-standard" min="0" step="0.01" placeholder="e.g. 110">
-                </div>
-
-                <div class="form-group">
-                    <label>Search Keywords</label>
-                    <input type="text" id="prodSearchKeywordsInput" class="input-standard" placeholder="comma-separated, e.g. parle, glucose, biscuit">
-                </div>
-
-                <button class="btn-submit" onclick="addProductQueueItem()" style="margin-top:8px; width:100%;">➕ Add to List</button>
-
-                <div style="margin-top:24px; padding-top:20px; border-top:1px dashed var(--border);">
-                    <div class="section-title" style="font-size:0.95rem; margin-bottom:10px;">
-                        <span>🧾 Items to Add</span>
-                        <span style="font-size:0.8rem; color:var(--text-muted);" id="prodQueueCount">0 Items</span>
-                    </div>
-                    <div id="prodQueueList" style="margin-bottom:16px;"><p style="color:var(--text-muted); font-size:0.85rem;">No items added yet.</p></div>
-                    <button class="whatsapp-send-btn" id="prodQueueSubmitBtn" onclick="submitProductQueue()" disabled>🚀 Add All to Products</button>
+                    <div id="prodCatalogList" class="prod-catalog-list"></div>
                 </div>
             </div>
         </div>

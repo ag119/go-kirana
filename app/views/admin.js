@@ -40,6 +40,13 @@
     let editingOrderId = null;
     let editOrderCartItems = [];
 
+    // Add/Update Products form: explicit mode toggle rather than inferring
+    // "add vs. update" from whether the typed SKU happens to already exist —
+    // 'update' mode requires picking an existing product via search, so an
+    // update can never fire off a typo'd SKU as a silent new-product create.
+    let productFormMode = 'add';
+    let productUpdateSelectedSku = null;
+
     // Bulk-add queues (Inventory restock + Products catalog): queued items
     // only actually reach the sheet once their "Submit"/"Add All" button is
     // clicked — before that they used to live in a plain in-memory array,
@@ -153,6 +160,7 @@
             renderFollowupGrid();
             renderPriceList(rawProducts);
             renderProductDatalists();
+            filterProductCatalogList();
             filterStockTab();
             renderOrdersStream(rawOrders);
             buildInsightIndex();
@@ -1715,11 +1723,10 @@
             .join('');
     }
 
-    // Live SKU lookup as admin fills the form — mirrors the Inventory tool's
-    // "already in inventory" check: if the SKU already exists in Products,
-    // pre-fill the rest of the form from its current values (so admin edits
-    // in place instead of retyping) and make clear this will UPDATE it
-    // rather than create a duplicate.
+    // Add mode: warns (rather than silently switching to an update) if the
+    // typed SKU already exists — 'add' and 'update' are now two deliberately
+    // separate flows (see productFormMode), so typing an existing SKU here
+    // is treated as a mistake to fix, not an implicit edit.
     function checkProductSku() {
         const sku = document.getElementById('prodSkuInput').value.trim();
         const infoBox = document.getElementById('prodSkuInfo');
@@ -1727,19 +1734,11 @@
 
         const existing = rawProducts.find(p => (p['SKU'] || '').trim() === sku);
         if (existing) {
-            infoBox.innerHTML = "✔ SKU already exists — submitting will update this product's details (fields below pre-filled from its current values).";
-            document.getElementById('prodItemNameInput').value = existing['Item Name'] || '';
-            document.getElementById('prodStandardNameInput').value = existing['Standard Name'] || '';
-            document.getElementById('prodCategoryInput').value = existing['Item Category'] || '';
-            document.getElementById('prodUomInput').value = existing['Unit of Measurement'] || '';
-            document.getElementById('prodPackagingInput').value = existing['Packaging Type'] || '';
-            document.getElementById('prodUnitsPerPackageInput').value = existing['Units per Package'] || '';
-            document.getElementById('prodPricePerUnitInput').value = existing['Price per Unit'] || '';
-            document.getElementById('prodActualPriceInput').value = existing['Actual Price'] || '';
-            document.getElementById('prodMrpInput').value = existing['MRP'] || '';
-            document.getElementById('prodSearchKeywordsInput').value = existing['Search Keywords'] || '';
+            infoBox.innerHTML = `⚠️ SKU already exists (${existing['Item Name'] || sku}) — switch to <strong>Update Existing</strong> above to edit it.`;
+            infoBox.style.color = '#b91c1c';
         } else {
-            infoBox.innerHTML = '➕ New SKU — submitting will create a new product.';
+            infoBox.innerHTML = '✔️ New SKU — this will create a new product.';
+            infoBox.style.color = '';
         }
         infoBox.style.display = 'block';
     }
@@ -1751,11 +1750,151 @@
         'prodMrpInput', 'prodSearchKeywordsInput'
     ];
 
+    // Switches between the two deliberately separate flows: 'add' (type a
+    // brand-new SKU, fields start blank) and 'update' (search/pick an
+    // existing product, fields pre-fill from it). Resets whichever
+    // selection/fields belonged to the flow being left.
+    function setProductFormMode(mode) {
+        productFormMode = mode;
+        productUpdateSelectedSku = null;
+
+        document.getElementById('prodModeAddBtn').classList.toggle('active', mode === 'add');
+        document.getElementById('prodModeUpdateBtn').classList.toggle('active', mode === 'update');
+        document.getElementById('prodAddSkuGroup').style.display = mode === 'add' ? 'block' : 'none';
+        document.getElementById('prodUpdateSearchGroup').style.display = mode === 'update' ? 'block' : 'none';
+        document.getElementById('prodFormFields').style.display = mode === 'add' ? 'block' : 'none';
+        document.getElementById('prodFormAddBtn').innerText = mode === 'add' ? '➕ Add to List' : '💾 Queue Update';
+
+        PRODUCT_FORM_FIELD_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        document.getElementById('prodSkuInfo').style.display = 'none';
+        document.getElementById('prodUpdateSearchInput').value = '';
+        document.getElementById('prodUpdateSelectedInfo').style.display = 'none';
+        document.getElementById('prodMarginPreview').style.display = 'none';
+    }
+
+    // Update mode's search box — same fuzzy scorer (getMatchScore) as the
+    // rest of this view's product pickers.
+    function handleProductUpdateSearchInput(inputEl) {
+        const dropdown = document.getElementById('prodUpdateDropdown');
+        if (!dropdown) return;
+
+        const query = inputEl.value.trim();
+        if (!query) { dropdown.style.display = 'none'; return; }
+
+        const scoredMatches = rawProducts
+            .map(p => ({ product: p, score: getMatchScore(p, query) }))
+            .filter(item => item.score > 0)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
+
+        if (!scoredMatches.length) { dropdown.style.display = 'none'; return; }
+
+        dropdown.innerHTML = scoredMatches.map(m => {
+            const p = m.product;
+            const sku = (p['SKU'] || '').trim();
+            const name = p['Item Name'] || p['Standard Name'] || sku;
+            return `
+            <div class="custom-suggest-item" onclick="selectProductForUpdate('${sku.replace(/'/g, "\\'")}')">
+                <span>${name}</span>
+                <span style="color:var(--text-muted); font-size:0.75rem;">${sku}</span>
+            </div>
+            `;
+        }).join('');
+
+        dropdown.style.display = 'block';
+    }
+
+    // Loads an existing product's current values into the (shared) form
+    // fields for editing. Also reachable directly from a catalog card's
+    // "✏️ Edit" button (see startProductUpdateFromCatalog), not just the
+    // search dropdown.
+    function selectProductForUpdate(sku) {
+        const existing = rawProducts.find(p => (p['SKU'] || '').trim() === sku);
+        if (!existing) return;
+
+        productUpdateSelectedSku = sku;
+        document.getElementById('prodUpdateSearchInput').value = existing['Item Name'] || sku;
+        const dd = document.getElementById('prodUpdateDropdown');
+        if (dd) dd.style.display = 'none';
+
+        const infoBox = document.getElementById('prodUpdateSelectedInfo');
+        infoBox.innerHTML = `✔️ Editing <strong>${existing['Item Name'] || sku}</strong> <span style="color:var(--text-muted); font-family:monospace;">(${sku})</span>`;
+        infoBox.style.display = 'block';
+
+        document.getElementById('prodItemNameInput').value = existing['Item Name'] || '';
+        document.getElementById('prodStandardNameInput').value = existing['Standard Name'] || '';
+        document.getElementById('prodCategoryInput').value = existing['Item Category'] || '';
+        document.getElementById('prodUomInput').value = existing['Unit of Measurement'] || '';
+        document.getElementById('prodPackagingInput').value = existing['Packaging Type'] || '';
+        document.getElementById('prodUnitsPerPackageInput').value = existing['Units per Package'] || '';
+        document.getElementById('prodPricePerUnitInput').value = existing['Price per Unit'] || '';
+        document.getElementById('prodActualPriceInput').value = existing['Actual Price'] || '';
+        document.getElementById('prodMrpInput').value = existing['MRP'] || '';
+        document.getElementById('prodSearchKeywordsInput').value = existing['Search Keywords'] || '';
+
+        document.getElementById('prodFormFields').style.display = 'block';
+        updateProductMarginPreview();
+    }
+
+    // Jumps straight into Update mode with a catalog card's product
+    // pre-loaded, instead of making the admin re-search for what they're
+    // already looking at.
+    function startProductUpdateFromCatalog(sku) {
+        setProductFormMode('update');
+        selectProductForUpdate(sku);
+        const formCard = document.getElementById('prodFormFields');
+        if (formCard) formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    // Live preview as the form is filled: per-unit margin (Price per Unit
+    // vs. Actual Price), discount off MRP, and total item value — same
+    // "item value = MRP × Total Units" the catalog list on the right shows
+    // per product, so the number here matches what'll appear there.
+    function updateProductMarginPreview() {
+        const box = document.getElementById('prodMarginPreview');
+        if (!box) return;
+
+        const mrp = parseFloat(document.getElementById('prodMrpInput').value);
+        const pricePerUnit = parseFloat(document.getElementById('prodPricePerUnitInput').value);
+        const actualPrice = parseFloat(document.getElementById('prodActualPriceInput').value);
+        const totalUnits = parseFloat(document.getElementById('prodUnitsPerPackageInput').value);
+
+        const parts = [];
+        if (!isNaN(pricePerUnit) && pricePerUnit > 0 && !isNaN(actualPrice) && actualPrice > 0) {
+            const perUnitMargin = pricePerUnit - actualPrice;
+            const perUnitMarginPct = (perUnitMargin / pricePerUnit) * 100;
+            const color = perUnitMargin >= 0 ? '#10b981' : '#ef4444';
+            parts.push(`Per-unit margin: <strong style="color:${color};">₹${perUnitMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${perUnitMarginPct.toFixed(1)}%)</strong>`);
+        }
+        if (!isNaN(mrp) && mrp > 0 && !isNaN(pricePerUnit) && pricePerUnit > 0) {
+            const discountPct = ((mrp - pricePerUnit) / mrp) * 100;
+            parts.push(`Off MRP: <strong>${discountPct.toFixed(1)}%</strong>`);
+        }
+        if (!isNaN(mrp) && mrp >= 0 && !isNaN(totalUnits) && totalUnits > 0) {
+            parts.push(`Item value: <strong>₹${(mrp * totalUnits).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>`);
+        }
+
+        if (!parts.length) { box.style.display = 'none'; return; }
+        box.innerHTML = parts.join(' &nbsp;•&nbsp; ');
+        box.style.display = 'block';
+    }
+
     function addProductQueueItem() {
-        const sku = document.getElementById('prodSkuInput').value.trim();
         const itemName = document.getElementById('prodItemNameInput').value.trim();
-        if (!sku) { alert('Please enter a SKU.'); return; }
         if (!itemName) { alert('Please enter an Item Name.'); return; }
+
+        let sku;
+        if (productFormMode === 'update') {
+            if (!productUpdateSelectedSku) { alert('Please search and select a product to update.'); return; }
+            sku = productUpdateSelectedSku;
+        } else {
+            sku = document.getElementById('prodSkuInput').value.trim();
+            if (!sku) { alert('Please enter a SKU.'); return; }
+            if (rawProducts.some(p => (p['SKU'] || '').trim() === sku)) {
+                alert('This SKU already exists. Switch to "Update Existing" to edit it.');
+                return;
+            }
+        }
 
         productQueue.push({
             sku: sku,
@@ -1774,9 +1913,19 @@
 
         PRODUCT_FORM_FIELD_IDS.forEach(id => { document.getElementById(id).value = ''; });
         document.getElementById('prodSkuInfo').style.display = 'none';
+        document.getElementById('prodMarginPreview').style.display = 'none';
+
+        if (productFormMode === 'update') {
+            productUpdateSelectedSku = null;
+            document.getElementById('prodUpdateSearchInput').value = '';
+            document.getElementById('prodUpdateSelectedInfo').style.display = 'none';
+            document.getElementById('prodFormFields').style.display = 'none';
+            document.getElementById('prodUpdateSearchInput').focus();
+        } else {
+            document.getElementById('prodSkuInput').focus();
+        }
 
         renderProductQueue();
-        document.getElementById('prodSkuInput').focus();
     }
 
     function renderProductQueue() {
@@ -1857,6 +2006,81 @@
 
         renderPriceList(rawProducts);
         renderProductDatalists();
+        filterProductCatalogList();
+    }
+
+    // --- PRODUCT CATALOG LIST (right side of Add/Update Products) ----------
+    // Item Value = MRP × Total Units; Gross Margin = (Price per Unit × Total
+    // Units) − Item Value; Gross Margin % is against revenue (Price per Unit
+    // × Total Units), the same convention this view already uses for order
+    // profit % (see buildBillSection's `profit/bill` calc) rather than
+    // against cost.
+    function filterProductCatalogList() {
+        const q = document.getElementById('prodCatalogSearch').value.toLowerCase();
+        const filtered = rawProducts.filter(p =>
+            (p['Item Name'] || '').toLowerCase().includes(q) ||
+            (p['Standard Name'] || '').toLowerCase().includes(q) ||
+            (p['SKU'] || '').toLowerCase().includes(q) ||
+            (p['Item Category'] || '').toLowerCase().includes(q)
+        );
+        renderProductCatalogList(filtered);
+    }
+
+    function renderProductCatalogList(rows) {
+        const container = document.getElementById('prodCatalogList');
+        if (!container) return;
+        document.getElementById('prodCatalogCount').innerText = `${rows.length} Items`;
+
+        if (!rows.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No products found.</p>';
+            return;
+        }
+
+        const stockBySku = {};
+        rawInventory.forEach(inv => { stockBySku[(inv['SKU'] || '').trim()] = toNum(inv['Stock']); });
+
+        const sorted = rows.slice().sort((a, b) => (a['Item Name'] || '').localeCompare(b['Item Name'] || ''));
+
+        container.innerHTML = sorted.map(p => {
+            const sku = (p['SKU'] || '').trim();
+            const name = p['Item Name'] || p['Standard Name'] || sku;
+            const category = p['Item Category'] || '';
+            const mrp = toNum(p['MRP']);
+            const pricePerUnit = toNum(p['Price per Unit']);
+            const actualPrice = toNum(p['Actual Price']);
+            const totalUnits = toNum(p['Units per Package']);
+            const stock = stockBySku.hasOwnProperty(sku) ? stockBySku[sku] : null;
+
+            const itemValue = mrp * totalUnits;
+            const revenue = pricePerUnit * totalUnits;
+            const grossMargin = revenue - itemValue;
+            const grossMarginPct = revenue ? (grossMargin / revenue) * 100 : 0;
+            const marginColor = grossMargin >= 0 ? '#10b981' : '#ef4444';
+
+            const perUnitMargin = pricePerUnit - actualPrice;
+            const perUnitMarginPct = pricePerUnit ? (perUnitMargin / pricePerUnit) * 100 : 0;
+
+            return `
+            <div class="prod-catalog-card">
+                <div class="prod-catalog-card-header">
+                    <div>
+                        <div class="prod-catalog-card-name">${name}</div>
+                        <div class="prod-catalog-card-sku">${sku}${category ? ` • ${category}` : ''}</div>
+                    </div>
+                    <button class="btn-analytics" onclick="startProductUpdateFromCatalog('${sku.replace(/'/g, "\\'")}')">✏️ Edit</button>
+                </div>
+                <div class="prod-catalog-card-grid">
+                    <div><span>MRP</span><strong>₹${mrp.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Price / Unit</span><strong>₹${pricePerUnit.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Actual Price</span><strong>₹${actualPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Total Units</span><strong>${totalUnits || 0}</strong></div>
+                    <div><span>Current Stock</span><strong>${stock === null ? '—' : stock}</strong></div>
+                    <div><span>Per-Unit Margin</span><strong>₹${perUnitMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${perUnitMarginPct.toFixed(1)}%)</strong></div>
+                    <div><span>Item Value</span><strong>₹${itemValue.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Gross Margin</span><strong style="color:${marginColor};">₹${grossMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${grossMarginPct.toFixed(1)}%)</strong></div>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     function toggleOrderItems(orderId) {
@@ -2993,6 +3217,12 @@
         saveInventoryItemEdit,
         deleteInventoryItemPrompt,
         checkProductSku,
+        setProductFormMode,
+        handleProductUpdateSearchInput,
+        selectProductForUpdate,
+        startProductUpdateFromCatalog,
+        updateProductMarginPreview,
+        filterProductCatalogList,
         addProductQueueItem,
         removeProductQueueItem,
         submitProductQueue,
