@@ -2868,6 +2868,7 @@
             return {
                 orderId,
                 date: order ? normalizeSheetDate(order['Order Date']) : '',
+                deliveryDate: order ? normalizeSheetDate(order['Fulfillment Date'] || order['Fulfilment Date'] || order['Order Date']) : '',
                 customerName: order ? (order['CustomerName'] || 'Unknown') : 'Unknown (order not found)',
                 qty, unitPrice, total
             };
@@ -2904,7 +2905,8 @@
             <thead>
                 <tr style="text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); text-transform:uppercase; font-size:0.7rem; letter-spacing:0.04em;">
                     <th style="padding:8px;">Order ID</th>
-                    <th style="padding:8px;">Date</th>
+                    <th style="padding:8px;">Order Date</th>
+                    <th style="padding:8px;">Delivery Date</th>
                     <th style="padding:8px;">Customer</th>
                     <th style="padding:8px; text-align:center;">Qty</th>
                     <th style="padding:8px; text-align:right;">Unit Price</th>
@@ -2916,6 +2918,7 @@
                 <tr style="border-bottom:1px solid var(--border);">
                     <td style="padding:8px; font-weight:700;">${r.orderId}</td>
                     <td style="padding:8px; white-space:nowrap;">${r.date}</td>
+                    <td style="padding:8px; white-space:nowrap;">${r.deliveryDate}</td>
                     <td style="padding:8px;">${r.customerName}</td>
                     <td style="padding:8px; text-align:center;">${r.qty}</td>
                     <td style="padding:8px; text-align:right;">₹${r.unitPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
