@@ -1850,28 +1850,52 @@
     // vs. Actual Price), discount off MRP, and total item value — same
     // "item value = MRP × Total Units" the catalog list on the right shows
     // per product, so the number here matches what'll appear there.
+    // "Price per Unit" and "Actual Price" in the Products sheet are each the
+    // total for the whole pack (all Total Units) — despite the field name,
+    // NOT a single physical unit's price. MRP, on the other hand, already is
+    // a true single-unit value. So the true per-unit price/cost has to be
+    // derived (pack value ÷ Total Units) before it's comparable to MRP or
+    // used for a per-unit margin; see computeProductMargins_ below, shared
+    // with the catalog list so the two stay consistent.
+    function computeProductMargins_(mrp, packPrice, packActualPrice, totalUnits) {
+        const pricePerUnitTrue = totalUnits > 0 ? packPrice / totalUnits : 0;
+        const actualPricePerUnitTrue = totalUnits > 0 ? packActualPrice / totalUnits : 0;
+
+        const itemValue = mrp * totalUnits; // whole pack's value at MRP
+        const grossMargin = packPrice - itemValue; // pack price actually charged vs. its MRP value
+        const grossMarginPct = packPrice ? (grossMargin / packPrice) * 100 : 0;
+
+        const perUnitMargin = pricePerUnitTrue - actualPricePerUnitTrue;
+        const perUnitMarginPct = pricePerUnitTrue ? (perUnitMargin / pricePerUnitTrue) * 100 : 0;
+
+        return { pricePerUnitTrue, actualPricePerUnitTrue, itemValue, grossMargin, grossMarginPct, perUnitMargin, perUnitMarginPct };
+    }
+
     function updateProductMarginPreview() {
         const box = document.getElementById('prodMarginPreview');
         if (!box) return;
 
-        const mrp = parseFloat(document.getElementById('prodMrpInput').value);
-        const pricePerUnit = parseFloat(document.getElementById('prodPricePerUnitInput').value);
-        const actualPrice = parseFloat(document.getElementById('prodActualPriceInput').value);
-        const totalUnits = parseFloat(document.getElementById('prodUnitsPerPackageInput').value);
+        const mrp = parseFloat(document.getElementById('prodMrpInput').value) || 0;
+        const packPrice = parseFloat(document.getElementById('prodPricePerUnitInput').value) || 0;
+        const packActualPrice = parseFloat(document.getElementById('prodActualPriceInput').value) || 0;
+        const totalUnits = parseFloat(document.getElementById('prodUnitsPerPackageInput').value) || 0;
+
+        const m = computeProductMargins_(mrp, packPrice, packActualPrice, totalUnits);
 
         const parts = [];
-        if (!isNaN(pricePerUnit) && pricePerUnit > 0 && !isNaN(actualPrice) && actualPrice > 0) {
-            const perUnitMargin = pricePerUnit - actualPrice;
-            const perUnitMarginPct = (perUnitMargin / pricePerUnit) * 100;
-            const color = perUnitMargin >= 0 ? '#10b981' : '#ef4444';
-            parts.push(`Per-unit margin: <strong style="color:${color};">₹${perUnitMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${perUnitMarginPct.toFixed(1)}%)</strong>`);
+        if (totalUnits > 0 && packPrice > 0) {
+            parts.push(`Price/unit: <strong>₹${m.pricePerUnitTrue.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>`);
         }
-        if (!isNaN(mrp) && mrp > 0 && !isNaN(pricePerUnit) && pricePerUnit > 0) {
-            const discountPct = ((mrp - pricePerUnit) / mrp) * 100;
+        if (totalUnits > 0 && packPrice > 0 && packActualPrice > 0) {
+            const color = m.perUnitMargin >= 0 ? '#10b981' : '#ef4444';
+            parts.push(`Per-unit margin: <strong style="color:${color};">₹${m.perUnitMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${m.perUnitMarginPct.toFixed(1)}%)</strong>`);
+        }
+        if (mrp > 0 && totalUnits > 0 && packPrice > 0) {
+            const discountPct = ((mrp - m.pricePerUnitTrue) / mrp) * 100;
             parts.push(`Off MRP: <strong>${discountPct.toFixed(1)}%</strong>`);
         }
-        if (!isNaN(mrp) && mrp >= 0 && !isNaN(totalUnits) && totalUnits > 0) {
-            parts.push(`Item value: <strong>₹${(mrp * totalUnits).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>`);
+        if (mrp >= 0 && totalUnits > 0) {
+            parts.push(`Item value: <strong>₹${m.itemValue.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>`);
         }
 
         if (!parts.length) { box.style.display = 'none'; return; }
@@ -2046,19 +2070,13 @@
             const name = p['Item Name'] || p['Standard Name'] || sku;
             const category = p['Item Category'] || '';
             const mrp = toNum(p['MRP']);
-            const pricePerUnit = toNum(p['Price per Unit']);
-            const actualPrice = toNum(p['Actual Price']);
+            const packPrice = toNum(p['Price per Unit']);
+            const packActualPrice = toNum(p['Actual Price']);
             const totalUnits = toNum(p['Units per Package']);
             const stock = stockBySku.hasOwnProperty(sku) ? stockBySku[sku] : null;
 
-            const itemValue = mrp * totalUnits;
-            const revenue = pricePerUnit * totalUnits;
-            const grossMargin = revenue - itemValue;
-            const grossMarginPct = revenue ? (grossMargin / revenue) * 100 : 0;
-            const marginColor = grossMargin >= 0 ? '#10b981' : '#ef4444';
-
-            const perUnitMargin = pricePerUnit - actualPrice;
-            const perUnitMarginPct = pricePerUnit ? (perUnitMargin / pricePerUnit) * 100 : 0;
+            const m = computeProductMargins_(mrp, packPrice, packActualPrice, totalUnits);
+            const marginColor = m.grossMargin >= 0 ? '#10b981' : '#ef4444';
 
             return `
             <div class="prod-catalog-card">
@@ -2070,14 +2088,15 @@
                     <button class="btn-analytics" onclick="startProductUpdateFromCatalog('${sku.replace(/'/g, "\\'")}')">✏️ Edit</button>
                 </div>
                 <div class="prod-catalog-card-grid">
-                    <div><span>MRP</span><strong>₹${mrp.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
-                    <div><span>Price / Unit</span><strong>₹${pricePerUnit.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
-                    <div><span>Actual Price</span><strong>₹${actualPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>MRP (per unit)</span><strong>₹${mrp.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Price / Unit</span><strong>₹${m.pricePerUnitTrue.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Pack Price</span><strong>₹${packPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Pack Actual Cost</span><strong>₹${packActualPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
                     <div><span>Total Units</span><strong>${totalUnits || 0}</strong></div>
                     <div><span>Current Stock</span><strong>${stock === null ? '—' : stock}</strong></div>
-                    <div><span>Per-Unit Margin</span><strong>₹${perUnitMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${perUnitMarginPct.toFixed(1)}%)</strong></div>
-                    <div><span>Item Value</span><strong>₹${itemValue.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
-                    <div><span>Gross Margin</span><strong style="color:${marginColor};">₹${grossMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${grossMarginPct.toFixed(1)}%)</strong></div>
+                    <div><span>Per-Unit Margin</span><strong>₹${m.perUnitMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${m.perUnitMarginPct.toFixed(1)}%)</strong></div>
+                    <div><span>Item Value (MRP)</span><strong>₹${m.itemValue.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong></div>
+                    <div><span>Gross Margin</span><strong style="color:${marginColor};">₹${m.grossMargin.toLocaleString('en-IN', {maximumFractionDigits:2})} (${m.grossMarginPct.toFixed(1)}%)</strong></div>
                 </div>
             </div>`;
         }).join('');
