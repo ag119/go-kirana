@@ -1981,16 +1981,19 @@
         }
 
         container.innerHTML = editOrderCartItems.map((item, idx) => {
-            const itemTotal = item.unitPrice ? (item.unitPrice * item.qty) : 0;
+            const itemTotal = (item.unitPrice || 0) * item.qty;
             estTotal += itemTotal;
             return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
-                <div>
-                    <strong>${item.name}</strong> × ${item.qty}
-                    <div style="font-size:0.75rem; color:var(--text-muted);">${item.unitPrice ? `₹${item.unitPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}/unit` : 'Price on request'}</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem; gap:8px;">
+                <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <strong>${item.name}</strong>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <strong>${item.unitPrice ? `₹${itemTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}` : 'N/A'}</strong>
+                <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                    <input type="number" min="1" value="${item.qty}" onchange="updateEditOrderItemQty(${idx}, this.value)" style="width:48px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Quantity">
+                    <span style="color:var(--text-muted);">×</span>
+                    <span style="color:var(--text-muted);">₹</span>
+                    <input type="number" min="0" step="0.01" value="${item.unitPrice || 0}" onchange="updateEditOrderItemPrice(${idx}, this.value)" style="width:72px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Unit price">
+                    <strong style="min-width:70px; text-align:right;">₹${itemTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
                     <button onclick="removeEditOrderCartItem(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button>
                 </div>
             </div>
@@ -1998,6 +2001,22 @@
         }).join('');
 
         document.getElementById('editOrderCartEstimatedTotal').innerText = `₹${estTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}`;
+    }
+
+    function updateEditOrderItemQty(idx, value) {
+        const item = editOrderCartItems[idx];
+        if (!item) return;
+        const qty = parseInt(value) || 1;
+        item.qty = qty < 1 ? 1 : qty;
+        renderEditOrderCart();
+    }
+
+    function updateEditOrderItemPrice(idx, value) {
+        const item = editOrderCartItems[idx];
+        if (!item) return;
+        const price = parseFloat(value);
+        item.unitPrice = (isNaN(price) || price < 0) ? 0 : price;
+        renderEditOrderCart();
     }
 
     function removeEditOrderCartItem(idx) {
@@ -2977,6 +2996,8 @@
         openEditOrderModal,
         addEditOrderItem,
         removeEditOrderCartItem,
+        updateEditOrderItemQty,
+        updateEditOrderItemPrice,
         saveEditOrder,
         handleSkuTraceSearchInput,
         selectSkuTraceProduct
