@@ -372,6 +372,13 @@
                     </div>
 
                     <div id="prodFormFields">
+                        <!-- UPDATE mode only: the selected product's SKU, editable to rename it.
+                             A change here propagates to Inventory + Order Details on submit. -->
+                        <div id="prodUpdateSkuGroup" class="form-group" style="display:none;">
+                            <label>SKU</label>
+                            <input type="text" id="prodUpdateSkuInput" class="input-standard" placeholder="SKU">
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">⚠️ Changing this renames the SKU everywhere it's used (Products, Inventory, Order Details).</div>
+                        </div>
                         <div class="form-group">
                             <label>Item Name *</label>
                             <input type="text" id="prodItemNameInput" class="input-standard" placeholder="e.g. Parle-G ₹5 PACK - 24 Units">

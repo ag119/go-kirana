@@ -1284,18 +1284,33 @@
         renderOrdersStream(filtered);
     }
 
+    // Reads the "Order Details" sheet's Flagged column — a real Sheets
+    // checkbox reads back as a JS boolean, but tolerate a plain "TRUE"/"Yes"
+    // text cell too, in case it was ever set by hand rather than via the
+    // Record Order tool.
+    function isRowFlagged_(row) {
+        const v = row['Flagged'];
+        return v === true || String(v).trim().toUpperCase() === 'TRUE' || String(v).trim().toUpperCase() === 'YES';
+    }
+
+    function orderHasFlaggedItems_(orderId) {
+        return billItemsForOrder(orderId).some(isRowFlagged_);
+    }
+
     function renderOrdersStream(orders) {
         warmBillPdfLibs(); // fire-and-forget: have jsPDF/html2canvas cached before "Send via WhatsApp" is clicked
         const stream = document.getElementById('ordersListStream');
         const sorted = sortOrdersDesc(orders);
         stream.innerHTML = withMonthDividers(sorted, o => {
             const orderId = o['Id'] || o['Order ID'] || '';
+            const flagged = orderHasFlaggedItems_(orderId);
             return `
-            <div class="order-card">
+            <div class="order-card${flagged ? ' flagged' : ''}">
                 <div class="order-card-header">
                     <div>
                         <div class="order-id">${orderId}</div>
                         <div class="order-date">👤 <strong>${o['CustomerName']||'Customer'}</strong> • 📅 ${normalizeSheetDate(o['Order Date'])}</div>
+                        ${flagged ? '<span class="flag-badge">🚩 Needs review</span>' : ''}
                     </div>
                     <div style="text-align:right;">
                         <div style="font-weight:800; font-size:1.05rem;">₹${parseFloat(String(o['Bill Amout']||o['Bill Amount']||0).replace(/[^0-9.-]+/g,"")).toLocaleString('en-IN', {maximumFractionDigits:2})}</div>

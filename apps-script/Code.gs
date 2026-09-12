@@ -337,6 +337,50 @@ function deleteAllRowsByColumn_(sheetName, matchColumn, matchValue) {
   return deletedCount;
 }
 
+// Updates EVERY row where `matchColumn` === `matchValue` (unlike
+// updateRowByHeaders_, which only touches the first match) — used to
+// propagate a Products SKU rename across every existing Order Details line
+// that still references the old SKU. Same read-merge-write semantics as
+// updateRowByHeaders_ (only alias keys present in `dataObj` are
+// overwritten). Reads and writes the whole column range in one call each,
+// since Order Details can have far more rows than a single-row update.
+// Returns the number of rows updated.
+function updateAllRowsByColumn_(sheetName, matchColumn, matchValue, dataObj, aliasMap) {
+  const sheet = getSpreadsheet_().getSheetByName(sheetName);
+  if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
+
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 2) return 0;
+
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const matchColIdx = headers.findIndex(h => normalizeHeader_(h) === normalizeHeader_(matchColumn));
+  if (matchColIdx === -1) return 0;
+
+  const values = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  let updatedCount = 0;
+
+  values.forEach(row => {
+    if (String(row[matchColIdx]) !== String(matchValue)) return;
+    updatedCount++;
+    headers.forEach((header, colIdx) => {
+      const normalized = normalizeHeader_(header);
+      for (const key in aliasMap) {
+        if (dataObj.hasOwnProperty(key) && aliasMap[key].some(a => normalizeHeader_(a) === normalized)) {
+          row[colIdx] = dataObj[key];
+          break;
+        }
+      }
+    });
+  });
+
+  if (updatedCount) {
+    sheet.getRange(2, 1, lastRow - 1, lastCol).setValues(values);
+    invalidateCachedSheet_(sheetName);
+  }
+  return updatedCount;
+}
+
 // Returns the actual header text in `sheet` matching any of `aliasNames`
 // (case/punctuation-insensitive), or null if none is present. Order-related
 // sheets are read defensively elsewhere in this file with a fallback chain
@@ -419,6 +463,12 @@ const ORDER_HEADER_ALIASES = {
   damageCost: ['Damage Cost']
 };
 
+// flagged/flagNote are optional: the "Order Details" sheet needs its own
+// "Flagged" / "Flag Note" columns added (by hand — appendRowByHeaders_ only
+// fills columns that already exist) before an item marked "needs review"
+// while recording an order (see app/views/orders.js) actually lands
+// anywhere. Until those columns exist, these two keys are silently dropped
+// like any other alias with no matching header.
 const ORDER_ITEM_HEADER_ALIASES = {
   orderId: ['Order ID', 'Id', 'OrderId'],
   sku: ['SKU'],
@@ -426,7 +476,9 @@ const ORDER_ITEM_HEADER_ALIASES = {
   unitPrice: ['Unit Price'],
   calculatedTotal: ['Calculated Total'],
   actualPrice: ['Actual Price'],
-  actualCost: ['Actual Cost Total', 'Actual Cost']
+  actualCost: ['Actual Cost Total', 'Actual Cost'],
+  flagged: ['Flagged'],
+  flagNote: ['Flag Note', 'FlagNote']
 };
 
 function handleCreateOrder_(body) {
@@ -451,7 +503,9 @@ function handleCreateOrder_(body) {
       unitPrice: item.unitPrice,
       calculatedTotal: item.calculatedTotal,
       actualPrice: item.actualPrice,
-      actualCost: item.actualCost
+      actualCost: item.actualCost,
+      flagged: !!item.flagged,
+      flagNote: item.flagNote || ''
     }, ORDER_ITEM_HEADER_ALIASES);
   });
 
@@ -529,7 +583,9 @@ function handleUpdateOrder_(session, body) {
         unitPrice: item.unitPrice,
         calculatedTotal: item.calculatedTotal,
         actualPrice: item.actualPrice,
-        actualCost: item.actualCost
+        actualCost: item.actualCost,
+        flagged: !!item.flagged,
+        flagNote: item.flagNote || ''
       }, ORDER_ITEM_HEADER_ALIASES);
     });
 
@@ -741,11 +797,34 @@ function getProductRowBySku_(sku) {
 // Add / update ONE product: if the SKU already exists, its row is replaced
 // outright with the freshly-entered values (not merged/incremented — unlike
 // Inventory's Stock, there's no "add to existing" concept for a catalog
-// entry). If the SKU isn't present yet, a new row is created. No role
-// check / locking here — callers wrap those around it.
+// entry). If the SKU isn't present yet, a new row is created.
+//
+// item.oldSku (optional) is the SKU the Update Products form started from —
+// the admin.js UI only sends it when the SKU field itself was actually
+// changed, i.e. a rename. It's looked up separately from item.sku (the new
+// value) so the existing row can be found under its old identity, then the
+// rename propagated to the only two other sheets that key off Products.SKU:
+// Inventory (SKU + Item Name) and every Order Details line still pointing
+// at the old SKU (Order Details has no name column, so only its SKU is
+// touched). A name-only edit (oldSku omitted or equal to sku) still pushes
+// the new Item Name into Inventory — so the two catalogs never drift apart
+// — but never touches Order Details. Draft Orders (pending, not-yet-
+// finalized orders, stored as an ItemsJson blob) are deliberately left
+// alone — out of scope. No role check / locking here — callers wrap those
+// around it.
 function addOrUpdateProduct_(item) {
   const sku = String(item.sku || '').trim();
   if (!sku) return { sku: '', status: 'error', message: 'Missing SKU.' };
+
+  const oldSku = String(item.oldSku || sku).trim();
+  const isRename = oldSku !== sku;
+
+  if (isRename) {
+    const collision = getProductRowBySku_(sku);
+    if (collision) {
+      return { sku: sku, status: 'error', message: `SKU "${sku}" is already used by "${collision['Item Name'] || sku}".` };
+    }
+  }
 
   const dataObj = {
     sku: sku,
@@ -761,9 +840,18 @@ function addOrUpdateProduct_(item) {
     searchKeywords: item.searchKeywords || ''
   };
 
-  const existing = getProductRowBySku_(sku);
+  const existing = getProductRowBySku_(oldSku);
   if (existing) {
-    updateRowByHeaders_(PRODUCTS_SHEET, 'SKU', sku, dataObj, PRODUCT_HEADER_ALIASES);
+    updateRowByHeaders_(PRODUCTS_SHEET, 'SKU', oldSku, dataObj, PRODUCT_HEADER_ALIASES);
+
+    const inventoryUpdate = { itemName: dataObj.itemName };
+    if (isRename) inventoryUpdate.sku = sku;
+    updateRowByHeaders_(INVENTORY_SHEET, 'SKU', oldSku, inventoryUpdate, INVENTORY_HEADER_ALIASES);
+
+    if (isRename) {
+      updateAllRowsByColumn_('Order Details', 'SKU', oldSku, { sku: sku }, ORDER_ITEM_HEADER_ALIASES);
+    }
+
     return { sku: sku, status: 'success', created: false };
   }
 

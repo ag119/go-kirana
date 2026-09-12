@@ -289,9 +289,9 @@
         const matched = findBestProductMatch(val);
 
         if (matched) {
-            sheetOrderCart.push({ sku: matched.sku, name: matched.name, qty, unitPrice: matched.price, costPrice: matched.costPrice || 0 });
+            sheetOrderCart.push({ sku: matched.sku, name: matched.name, qty, unitPrice: matched.price, costPrice: matched.costPrice || 0, flagged: false, flagNote: '' });
         } else {
-            sheetOrderCart.push({ sku: 'CUSTOM', name: val, qty, unitPrice: 0, costPrice: 0 });
+            sheetOrderCart.push({ sku: 'CUSTOM', name: val, qty, unitPrice: 0, costPrice: 0, flagged: false, flagNote: '' });
         }
 
         searchInput.value = '';
@@ -321,10 +321,28 @@
         renderSheetOrderTable();
     }
 
+    // Marks an item as "needs review" (e.g. unsure about its price) instead
+    // of holding up recording the whole order — the Orders Stream highlights
+    // any order with a flagged item, and Edit Order highlights the flagged
+    // item itself so it's easy to come back and fix later.
+    function toggleSheetOrderItemFlag(idx) {
+        const item = sheetOrderCart[idx];
+        if (!item) return;
+        item.flagged = !item.flagged;
+        if (!item.flagged) item.flagNote = '';
+        renderSheetOrderTable();
+    }
+
+    function updateSheetOrderItemFlagNote(idx, value) {
+        const item = sheetOrderCart[idx];
+        if (!item) return;
+        item.flagNote = value;
+    }
+
     function renderSheetOrderTable() {
         const tbody = document.getElementById('sheetOrderItemsTableBody');
         if (!sheetOrderCart.length) {
-            tbody.innerHTML = `<tr><td colspan="8" style="padding:24px; text-align:center; color:var(--text-muted);">No items added yet. Search and add products above.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="padding:24px; text-align:center; color:var(--text-muted);">No items added yet. Search and add products above.</td></tr>`;
             renderSheetOrderSummary();
             return;
         }
@@ -332,9 +350,10 @@
         tbody.innerHTML = sheetOrderCart.map((item, idx) => {
             const totalBilled = (item.qty * item.unitPrice).toFixed(2);
             const totalCost = (item.qty * item.costPrice).toFixed(2);
+            const rowStyle = item.flagged ? ' style="background:#fffbeb;"' : '';
 
             return `
-            <tr>
+            <tr${rowStyle}>
                 <td><code style="font-size:0.75rem; color:var(--text-muted);">${item.sku || 'N/A'}</code></td>
                 <td style="font-weight:700;">${item.name}</td>
                 <td style="text-align:center;">
@@ -352,6 +371,10 @@
                     <input type="number" step="0.01" value="${item.costPrice}" style="width:90px; text-align:right; border:1px solid var(--border); border-radius:4px; padding:4px 6px; font-weight:700;" onchange="updateSheetOrderItemCostPrice(${idx}, this.value)">
                 </td>
                 <td style="text-align:right; font-weight:800; color:var(--text-muted);">₹${parseFloat(totalCost).toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                <td style="text-align:center;">
+                    <button title="${item.flagged ? 'Marked — needs review' : 'Mark as needs review'}" style="border:none; background:none; cursor:pointer; font-size:1.1rem; opacity:${item.flagged ? '1' : '0.35'};" onclick="toggleSheetOrderItemFlag(${idx})">🚩</button>
+                    ${item.flagged ? `<input type="text" value="${(item.flagNote || '').replace(/"/g, '&quot;')}" placeholder="Why? (optional)" style="display:block; width:100px; margin-top:4px; font-size:0.72rem; border:1px solid var(--border); border-radius:4px; padding:2px 4px;" onchange="updateSheetOrderItemFlagNote(${idx}, this.value)">` : ''}
+                </td>
                 <td style="text-align:center;">
                     <button style="border:none; background:none; color:red; font-weight:bold; cursor:pointer; font-size:1rem;" onclick="removeSheetOrderItem(${idx})">✕</button>
                 </td>
@@ -448,7 +471,9 @@
                 unitPrice: i.unitPrice,
                 actualPrice: i.costPrice,
                 calculatedTotal: (i.qty * i.unitPrice),
-                actualCost: (i.qty * i.costPrice)
+                actualCost: (i.qty * i.costPrice),
+                flagged: !!i.flagged,
+                flagNote: i.flagNote || ''
             }))
         };
 
@@ -903,6 +928,8 @@
         updateSheetOrderItemQty,
         updateSheetOrderItemUnitPrice,
         updateSheetOrderItemCostPrice,
+        toggleSheetOrderItemFlag,
+        updateSheetOrderItemFlagNote,
         removeSheetOrderItem,
         renderSheetOrderSummary,
         submitOrderToGoogleSheet,

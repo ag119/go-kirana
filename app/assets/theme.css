@@ -654,6 +654,7 @@ a { color: inherit; }
 .month-divider:first-child { margin-top: 0; }
 
 .order-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; margin-bottom: 14px; }
+.order-card.flagged { border-color: #f59e0b; background: #fffbeb; }
 .order-card-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
 .order-id { font-family: monospace; font-weight: 800; font-size: 0.9rem; color: var(--primary-dark); }
 .order-date { font-size: 0.75rem; color: var(--text-muted); }
@@ -661,6 +662,8 @@ a { color: inherit; }
 .profit-badge { font-size: 0.75rem; font-weight: 800; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-top: 4px; }
 .profit-pos { background: #dcfce7; color: #15803d; }
 .profit-neg { background: #fee2e2; color: #b91c1c; }
+
+.flag-badge { font-size: 0.75rem; font-weight: 800; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-top: 4px; margin-left: 6px; background: #fef3c7; color: #92400e; }
 
 .order-items-list { margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border); display: none; }
 .order-items-list.open { display: block; }

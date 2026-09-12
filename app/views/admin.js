@@ -1744,7 +1744,7 @@
     }
 
     const PRODUCT_FORM_FIELD_IDS = [
-        'prodSkuInput', 'prodItemNameInput', 'prodStandardNameInput',
+        'prodSkuInput', 'prodUpdateSkuInput', 'prodItemNameInput', 'prodStandardNameInput',
         'prodCategoryInput', 'prodUomInput', 'prodPackagingInput',
         'prodUnitsPerPackageInput', 'prodPricePerUnitInput', 'prodActualPriceInput',
         'prodMrpInput', 'prodSearchKeywordsInput'
@@ -1762,6 +1762,7 @@
         document.getElementById('prodModeUpdateBtn').classList.toggle('active', mode === 'update');
         document.getElementById('prodAddSkuGroup').style.display = mode === 'add' ? 'block' : 'none';
         document.getElementById('prodUpdateSearchGroup').style.display = mode === 'update' ? 'block' : 'none';
+        document.getElementById('prodUpdateSkuGroup').style.display = mode === 'update' ? 'block' : 'none';
         document.getElementById('prodFormFields').style.display = mode === 'add' ? 'block' : 'none';
         document.getElementById('prodFormAddBtn').innerText = mode === 'add' ? '➕ Add to List' : '💾 Queue Update';
 
@@ -1821,6 +1822,7 @@
         infoBox.innerHTML = `✔️ Editing <strong>${existing['Item Name'] || sku}</strong> <span style="color:var(--text-muted); font-family:monospace;">(${sku})</span>`;
         infoBox.style.display = 'block';
 
+        document.getElementById('prodUpdateSkuInput').value = sku;
         document.getElementById('prodItemNameInput').value = existing['Item Name'] || '';
         document.getElementById('prodStandardNameInput').value = existing['Standard Name'] || '';
         document.getElementById('prodCategoryInput').value = existing['Item Category'] || '';
@@ -1912,9 +1914,16 @@
         if (!itemName) { alert('Please enter an Item Name.'); return; }
 
         let sku;
+        let oldSku;
         if (productFormMode === 'update') {
             if (!productUpdateSelectedSku) { alert('Please search and select a product to update.'); return; }
-            sku = productUpdateSelectedSku;
+            oldSku = productUpdateSelectedSku;
+            sku = document.getElementById('prodUpdateSkuInput').value.trim();
+            if (!sku) { alert('SKU cannot be empty.'); return; }
+            if (sku !== oldSku && rawProducts.some(p => (p['SKU'] || '').trim() === sku)) {
+                alert(`SKU "${sku}" already belongs to another product. Choose a different SKU.`);
+                return;
+            }
         } else {
             sku = document.getElementById('prodSkuInput').value.trim();
             if (!sku) { alert('Please enter a SKU.'); return; }
@@ -1926,6 +1935,7 @@
 
         productQueue.push({
             sku: sku,
+            oldSku: (productFormMode === 'update' && oldSku !== sku) ? oldSku : undefined,
             itemName: itemName,
             standardName: document.getElementById('prodStandardNameInput').value.trim(),
             itemCategory: document.getElementById('prodCategoryInput').value.trim(),
@@ -1972,7 +1982,7 @@
 
         container.innerHTML = productQueue.map((item, idx) => {
             const exists = rawProducts.some(p => (p['SKU'] || '').trim() === item.sku);
-            const note = exists ? 'will update existing' : 'new product';
+            const note = item.oldSku ? `renaming ${item.oldSku} → ${item.sku}` : (exists ? 'will update existing' : 'new product');
             return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:0.85rem;">
                 <div>
@@ -1999,11 +2009,28 @@
         submitBtn.innerHTML = '⏳ Submitting...';
 
         try {
-            await GK.api.bulkAddProducts({ items: productQueue });
-            productQueue = [];
+            const data = await GK.api.bulkAddProducts({ items: productQueue });
+            const results = Array.isArray(data.results) ? data.results : [];
+            const errors = [];
+            // Items with a per-item error (e.g. a SKU-rename collision) stay
+            // in the queue for the admin to fix and resubmit, rather than
+            // being silently dropped — bulkAddProducts only rejects on a
+            // top-level failure, not per-item ones inside `results`.
+            productQueue = productQueue.filter((item, i) => {
+                const r = results[i];
+                if (r && r.status === 'error') {
+                    errors.push(`${item.itemName || item.sku}: ${r.message || 'failed'}`);
+                    return true;
+                }
+                return false;
+            });
             persistQueue_(PRODUCT_QUEUE_STORAGE_KEY, productQueue);
             renderProductQueue();
             await refreshProductsAfterAdd();
+
+            if (errors.length) {
+                alert('⚠️ Some items could not be saved and were kept in the list:\n\n' + errors.join('\n'));
+            }
         } catch (err) {
             alert('⚠️ ' + (err.message || 'Failed to submit product list.'));
             submitBtn.disabled = false;
@@ -2127,18 +2154,32 @@
         renderOrdersStream(filtered);
     }
 
+    // Reads the "Order Details" sheet's Flagged column — a real Sheets
+    // checkbox reads back as a JS boolean, but tolerate a plain "TRUE"/"Yes"
+    // text cell too, in case it was ever set by hand rather than via this UI.
+    function isRowFlagged_(row) {
+        const v = row['Flagged'];
+        return v === true || String(v).trim().toUpperCase() === 'TRUE' || String(v).trim().toUpperCase() === 'YES';
+    }
+
+    function orderHasFlaggedItems_(orderId) {
+        return billItemsForOrder(orderId).some(isRowFlagged_);
+    }
+
     function renderOrdersStream(orders) {
         warmBillPdfLibs(); // fire-and-forget: have jsPDF/html2canvas cached before "Send via WhatsApp" is clicked
         const stream = document.getElementById('ordersListStream');
         const sorted = sortOrdersDesc(orders);
         stream.innerHTML = withMonthDividers(sorted, o => {
             const orderId = o['Id'] || o['Order ID'] || '';
+            const flagged = orderHasFlaggedItems_(orderId);
             return `
-            <div class="order-card">
+            <div class="order-card${flagged ? ' flagged' : ''}">
                 <div class="order-card-header">
                     <div>
                         <div class="order-id">${orderId}</div>
                         <div class="order-date">👤 <strong>${o['CustomerName']||'Customer'}</strong> • 📅 ${normalizeSheetDate(o['Order Date'])}</div>
+                        ${flagged ? '<span class="flag-badge">🚩 Needs review</span>' : ''}
                     </div>
                     <div style="text-align:right;">
                         <div style="font-weight:800; font-size:1.05rem;">₹${parseFloat(String(o['Bill Amout']||o['Bill Amount']||0).replace(/[^0-9.-]+/g,"")).toLocaleString('en-IN', {maximumFractionDigits:2})}</div>
@@ -2184,7 +2225,9 @@
                 name: prod ? prod.name : (sku || it['SKU'] || 'Item'),
                 qty: qty,
                 unitPrice: unitPrice,
-                costPrice: costPrice
+                costPrice: costPrice,
+                flagged: isRowFlagged_(it),
+                flagNote: it['Flag Note'] || ''
             };
         });
 
@@ -2230,10 +2273,15 @@
         container.innerHTML = editOrderCartItems.map((item, idx) => {
             const itemTotal = (item.unitPrice || 0) * item.qty;
             estTotal += itemTotal;
+            const rowStyle = item.flagged
+                ? 'display:flex; justify-content:space-between; align-items:center; padding:6px 8px; margin:2px 0; border-radius:6px; background:#fffbeb; border-bottom:1px solid var(--border); font-size:0.85rem; gap:8px;'
+                : 'display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem; gap:8px;';
             return `
-            <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem; gap:8px;">
+            <div style="${rowStyle}">
                 <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <button title="${item.flagged ? 'Marked — needs review. Click to clear.' : 'Not marked'}" style="border:none; background:none; cursor:pointer; font-size:0.95rem; opacity:${item.flagged ? '1' : '0.25'}; padding:0 4px 0 0;" onclick="toggleEditOrderItemFlag(${idx})">🚩</button>
                     <strong>${item.name}</strong>
+                    ${item.flagged && item.flagNote ? `<div style="font-size:0.72rem; color:#92400e; margin-left:22px;">${item.flagNote.replace(/</g, '&lt;')}</div>` : ''}
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
                     <input type="number" min="1" value="${item.qty}" onchange="updateEditOrderItemQty(${idx}, this.value)" style="width:48px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Quantity">
@@ -2266,6 +2314,17 @@
         renderEditOrderCart();
     }
 
+    // Un-flagging here is always a deliberate, manual action — editing an
+    // item's price/qty above does NOT clear its flag on its own, so a flag
+    // is never lost as a side effect of an unrelated correction.
+    function toggleEditOrderItemFlag(idx) {
+        const item = editOrderCartItems[idx];
+        if (!item) return;
+        item.flagged = !item.flagged;
+        if (!item.flagged) item.flagNote = '';
+        renderEditOrderCart();
+    }
+
     function removeEditOrderCartItem(idx) {
         editOrderCartItems.splice(idx, 1);
         renderEditOrderCart();
@@ -2294,7 +2353,9 @@
                     unitPrice: i.unitPrice,
                     actualPrice: i.costPrice,
                     calculatedTotal: (i.qty * (i.unitPrice || 0)),
-                    actualCost: (i.qty * (i.costPrice || 0))
+                    actualCost: (i.qty * (i.costPrice || 0)),
+                    flagged: !!i.flagged,
+                    flagNote: i.flagNote || ''
                 }))
             });
 
@@ -3254,6 +3315,7 @@
         removeEditOrderCartItem,
         updateEditOrderItemQty,
         updateEditOrderItemPrice,
+        toggleEditOrderItemFlag,
         saveEditOrder,
         handleSkuTraceSearchInput,
         selectSkuTraceProduct
