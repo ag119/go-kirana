@@ -264,13 +264,23 @@ function findRowIndexByValue_(sheet, columnName, value) {
   return -1;
 }
 
-// Updates the row where `matchColumn` === `matchValue`, read-merge-write:
-// only columns whose alias key is present in `dataObj` (checked via
-// hasOwnProperty, so an explicit '' is distinguishable from "not
-// provided") are overwritten — every other column keeps its current
-// value. Unlike appendRowByHeaders_, "key absent" here must NOT mean
-// "blank it out", since this is a partial update, not a fresh append.
-// Returns true if a row was found and updated, false otherwise.
+// Updates the row where `matchColumn` === `matchValue`: only columns whose
+// alias key is present in `dataObj` (checked via hasOwnProperty, so an
+// explicit '' is distinguishable from "not provided") are written —
+// literally only those specific cells, one setValue() per changed column.
+// Every other cell on the row is never read or touched.
+//
+// This matters beyond just "leaves other data alone": sheets like "Orders"
+// interleave formula-derived columns (Bill Amount, Actual Cost, Profit/
+// Loss) with plain data ones. getValues() only ever returns a formula
+// cell's last COMPUTED result, never the formula itself — so an earlier
+// version of this function that read the whole row and wrote it all back
+// (a read-merge-write over the full row width) was silently replacing
+// those formulas with a stale static number on every single edit, even
+// ones that only touched Fulfillment Date/Delivery Charge/Damage Cost.
+// Only ever writing the exact cells being changed makes that impossible.
+// Returns true if a row was found (whether or not anything on it actually
+// changed), false if no row matched.
 function updateRowByHeaders_(sheetName, matchColumn, matchValue, dataObj, aliasMap) {
   const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
@@ -280,20 +290,17 @@ function updateRowByHeaders_(sheetName, matchColumn, matchValue, dataObj, aliasM
 
   const lastCol = sheet.getLastColumn();
   const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
-  const currentValues = sheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
 
-  const newRow = headers.map((header, i) => {
+  headers.forEach((header, i) => {
     const normalized = normalizeHeader_(header);
     for (const key in aliasMap) {
-      const aliases = aliasMap[key];
-      if (aliases.some(a => normalizeHeader_(a) === normalized)) {
-        return dataObj.hasOwnProperty(key) ? dataObj[key] : currentValues[i];
+      if (dataObj.hasOwnProperty(key) && aliasMap[key].some(a => normalizeHeader_(a) === normalized)) {
+        sheet.getRange(rowIdx, i + 1).setValue(dataObj[key]);
+        break;
       }
     }
-    return currentValues[i];
   });
 
-  sheet.getRange(rowIdx, 1, 1, lastCol).setValues([newRow]);
   invalidateCachedSheet_(sheetName);
   return true;
 }
@@ -340,11 +347,13 @@ function deleteAllRowsByColumn_(sheetName, matchColumn, matchValue) {
 // Updates EVERY row where `matchColumn` === `matchValue` (unlike
 // updateRowByHeaders_, which only touches the first match) — used to
 // propagate a Products SKU rename across every existing Order Details line
-// that still references the old SKU. Same read-merge-write semantics as
-// updateRowByHeaders_ (only alias keys present in `dataObj` are
-// overwritten). Reads and writes the whole column range in one call each,
-// since Order Details can have far more rows than a single-row update.
-// Returns the number of rows updated.
+// that still references the old SKU. Only reads the match column (not the
+// whole sheet) to find which rows qualify, then writes only the specific
+// target cells on those rows — same reasoning as updateRowByHeaders_'s own
+// fix: a blanket read-the-whole-range/write-the-whole-range round-trip
+// would silently convert any formula cell elsewhere on the sheet into a
+// stale literal (getValues() only ever returns a formula's last computed
+// result, never the formula itself). Returns the number of rows updated.
 function updateAllRowsByColumn_(sheetName, matchColumn, matchValue, dataObj, aliasMap) {
   const sheet = getSpreadsheet_().getSheetByName(sheetName);
   if (!sheet) throw new Error(`Sheet tab "${sheetName}" not found.`);
@@ -357,27 +366,29 @@ function updateAllRowsByColumn_(sheetName, matchColumn, matchValue, dataObj, ali
   const matchColIdx = headers.findIndex(h => normalizeHeader_(h) === normalizeHeader_(matchColumn));
   if (matchColIdx === -1) return 0;
 
-  const values = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const targetCols = [];
+  headers.forEach((header, colIdx) => {
+    const normalized = normalizeHeader_(header);
+    for (const key in aliasMap) {
+      if (dataObj.hasOwnProperty(key) && aliasMap[key].some(a => normalizeHeader_(a) === normalized)) {
+        targetCols.push({ colIdx: colIdx, key: key });
+        break;
+      }
+    }
+  });
+  if (!targetCols.length) return 0;
+
+  const matchValues = sheet.getRange(2, matchColIdx + 1, lastRow - 1, 1).getValues();
   let updatedCount = 0;
 
-  values.forEach(row => {
-    if (String(row[matchColIdx]) !== String(matchValue)) return;
+  matchValues.forEach((row, i) => {
+    if (String(row[0]) !== String(matchValue)) return;
+    const sheetRow = i + 2;
+    targetCols.forEach(t => sheet.getRange(sheetRow, t.colIdx + 1).setValue(dataObj[t.key]));
     updatedCount++;
-    headers.forEach((header, colIdx) => {
-      const normalized = normalizeHeader_(header);
-      for (const key in aliasMap) {
-        if (dataObj.hasOwnProperty(key) && aliasMap[key].some(a => normalizeHeader_(a) === normalized)) {
-          row[colIdx] = dataObj[key];
-          break;
-        }
-      }
-    });
   });
 
-  if (updatedCount) {
-    sheet.getRange(2, 1, lastRow - 1, lastCol).setValues(values);
-    invalidateCachedSheet_(sheetName);
-  }
+  if (updatedCount) invalidateCachedSheet_(sheetName);
   return updatedCount;
 }
 
@@ -598,25 +609,39 @@ function handleUpdateOrder_(session, body) {
   // Outside the lock above (that one guards Orders + Order Details;
   // decrementInventoryStock_ takes its own lock for the Inventory sheet —
   // see the comment on that function for why these are never nested).
-  decrementInventoryStock_(computeOrderItemDelta_(result.oldItems, items));
+  decrementInventoryStock_(session, computeOrderItemDelta_(result.oldItems, items), orderId, getOrderCustomerName_(orderId));
   return { status: 'success', orderId: orderId };
+}
+
+// updateOrder's body never carries customerName (editing an order doesn't
+// change who it's for), so the Inventory Log's "Customer" column for an
+// "Order" entry from an edit needs its own small lookup against Orders.
+function getOrderCustomerName_(orderId) {
+  const rows = sheetToRows_('Orders');
+  const row = rows.find(r => String(r['Id'] || r['Order ID'] || r['OrderId'] || '').trim() === String(orderId).trim());
+  return row ? (row['CustomerName'] || row['Customer Name'] || '') : '';
 }
 
 const INVENTORY_SHEET = 'Inventory';
 
 // Reduces Inventory.Stock for each order item whose SKU matches a row in
 // the Inventory sheet, by that item's quantity — called after an order has
-// been successfully written (see the doPost 'createOrder' branch and
-// handleSubmitDraftOrder_ below), never from inside another withLock_
-// section (this one takes its own lock; Apps Script script locks are not
-// guaranteed reentrant within a single execution, so nesting is avoided by
-// construction rather than assumed safe).
+// been successfully written (see the doPost 'createOrder' branch,
+// handleUpdateOrder_, and handleSubmitDraftOrder_ below), never from
+// inside another withLock_ section (this one takes its own lock; Apps
+// Script script locks are not guaranteed reentrant within a single
+// execution, so nesting is avoided by construction rather than assumed
+// safe).
 //
 // Items with no SKU (custom/off-catalog) or no matching Inventory row are
 // silently skipped — not every item is necessarily stocked there. Stock is
 // allowed to go negative on purpose: an oversold item should show up as a
-// visible negative rather than being silently clamped at 0.
-function decrementInventoryStock_(items) {
+// visible negative rather than being silently clamped at 0. `item.quantity`
+// is the signed change to apply (positive = order consuming stock = OUT;
+// see computeOrderItemDelta_, which can hand this a negative value when an
+// order edit reduces a quantity, giving stock back = IN) — logged with the
+// opposite sign so Qty Change always reads as the actual change to Stock.
+function decrementInventoryStock_(session, items, reference, customer) {
   if (!items || !items.length) return;
 
   withLock_(() => {
@@ -637,8 +662,16 @@ function decrementInventoryStock_(items) {
       const rowIdx = findRowIndexByValue_(sheet, 'SKU', sku);
       if (rowIdx === -1) return;
 
-      const cell = sheet.getRange(rowIdx, stockColIdx + 1);
-      cell.setValue((Number(cell.getValue()) || 0) - qty);
+      const rowValues = sheet.getRange(rowIdx, 1, 1, lastCol).getValues()[0];
+      const rowObj = {};
+      headers.forEach((h, i) => { if (h) rowObj[h] = rowValues[i]; });
+      const before = inventorySnapshot_(rowObj);
+
+      const newStock = before.stock - qty;
+      sheet.getRange(rowIdx, stockColIdx + 1).setValue(newStock);
+
+      const after = Object.assign({}, before, { stock: newStock });
+      logInventoryTransaction_(session, 'Order', sku, rowObj['Item Name'] || sku, reference, customer, -qty, before, after);
     });
 
     invalidateCachedSheet_(INVENTORY_SHEET);
@@ -668,43 +701,209 @@ function getInventoryRowBySku_(sku) {
   return rows.find(r => String(r['SKU'] || '').trim() === String(sku).trim()) || null;
 }
 
+/* ---------------------------------------------------------------------
+ * Inventory Log (admin-only, read-only from the UI) — a before/after
+ * snapshot of every transaction that changes Inventory numbers: a
+ * restock, an order being created/edited (either direction — an edit
+ * that reduces a quantity gives stock back), a direct manual edit, or a
+ * row being deleted. Auto-provisioned on first write, same pattern as
+ * "Audit Log" / "Draft Orders".
+ * ------------------------------------------------------------------- */
+
+const INVENTORY_LOG_SHEET = 'Inventory Log';
+const INVENTORY_LOG_HEADERS = [
+  'Timestamp', 'Username', 'Role', 'Type', 'SKU', 'Item Name', 'Reference', 'Customer',
+  'Qty Change', 'Stock Before', 'Stock After',
+  'Case Price Before', 'Case Price After',
+  'Units in Case Before', 'Units in Case After',
+  'Selling Price Before', 'Selling Price After',
+  'Per Unit Price Before', 'Per Unit Price After',
+  'Inventory Value Before', 'Inventory Value After'
+];
+const INVENTORY_LOG_HEADER_ALIASES = {
+  timestamp: ['Timestamp'],
+  username: ['Username'],
+  role: ['Role'],
+  type: ['Type'],
+  sku: ['SKU'],
+  itemName: ['Item Name'],
+  reference: ['Reference'],
+  customer: ['Customer'],
+  qtyChange: ['Qty Change'],
+  stockBefore: ['Stock Before'],
+  stockAfter: ['Stock After'],
+  casePriceBefore: ['Case Price Before'],
+  casePriceAfter: ['Case Price After'],
+  unitsInCaseBefore: ['Units in Case Before'],
+  unitsInCaseAfter: ['Units in Case After'],
+  sellingPriceBefore: ['Selling Price Before'],
+  sellingPriceAfter: ['Selling Price After'],
+  perUnitPriceBefore: ['Per Unit Price Before'],
+  perUnitPriceAfter: ['Per Unit Price After'],
+  inventoryValueBefore: ['Inventory Value Before'],
+  inventoryValueAfter: ['Inventory Value After']
+};
+
+// Builds a plain {stock, casePrice, unitsInCase, sellingPrice, perUnitPrice}
+// snapshot from an Inventory row object (or all-zero if `row` is null/
+// undefined — e.g. the "before" state of a brand-new SKU's first
+// restock). perUnitPrice prefers the sheet's own formula-computed value,
+// falling back to Case Price / Units in Case — same tolerant read used
+// throughout addOrRestockInventoryItem_.
+function inventorySnapshot_(row) {
+  const stock = Number(row && row['Stock']) || 0;
+  const casePrice = Number(row && row['Case Price']) || 0;
+  const unitsInCase = Number(row && (row['Units in case'] ?? row['Units In Case'])) || 0;
+  const sellingPrice = Number(row && row['Selling Price']) || 0;
+  const perUnitPrice = (row && Number(row['Per Unit Price'])) ||
+    (unitsInCase > 0 ? casePrice / unitsInCase : 0);
+  return { stock: stock, casePrice: casePrice, unitsInCase: unitsInCase, sellingPrice: sellingPrice, perUnitPrice: perUnitPrice };
+}
+
+// Appends one row to Inventory Log recording a before/after snapshot for
+// one SKU's transaction. `before`/`after` are inventorySnapshot_()-shaped
+// objects; `qtyChange` is signed — positive for stock coming IN, negative
+// for stock going OUT. Inventory Value is Stock × Per Unit Price, frozen
+// at that moment (never a live formula) since Case Price/Units in Case
+// can keep changing afterwards and a historical entry needs to reflect
+// what was true then, not now.
+function logInventoryTransaction_(session, type, sku, itemName, reference, customer, qtyChange, before, after) {
+  ensureSheetExists_(INVENTORY_LOG_SHEET, INVENTORY_LOG_HEADERS);
+  appendRowByHeaders_(INVENTORY_LOG_SHEET, {
+    timestamp: new Date(),
+    username: session ? session.u : '',
+    role: session ? session.role : '',
+    type: type,
+    sku: sku,
+    itemName: itemName || '',
+    reference: reference || '',
+    customer: customer || '',
+    qtyChange: qtyChange || 0,
+    stockBefore: before.stock,
+    stockAfter: after.stock,
+    casePriceBefore: before.casePrice,
+    casePriceAfter: after.casePrice,
+    unitsInCaseBefore: before.unitsInCase,
+    unitsInCaseAfter: after.unitsInCase,
+    sellingPriceBefore: before.sellingPrice,
+    sellingPriceAfter: after.sellingPrice,
+    perUnitPriceBefore: before.perUnitPrice,
+    perUnitPriceAfter: after.perUnitPrice,
+    inventoryValueBefore: before.stock * before.perUnitPrice,
+    inventoryValueAfter: after.stock * after.perUnitPrice
+  }, INVENTORY_LOG_HEADER_ALIASES);
+}
+
 // Add / restock ONE item: if the SKU already has an Inventory row, the
-// given Stock is ADDED to whatever is already there (Case Price / Units in
-// case / Selling Price are replaced with the freshly-entered values, since
-// a restock is exactly when those legitimately change). If the SKU isn't
-// present yet, a new row is created. No role check / locking here — callers
-// (handleAddInventoryStock_, handleBulkAddInventoryStock_) wrap those
-// around it, the latter around a whole batch rather than per item.
-function addOrRestockInventoryItem_(item) {
+// given Stock is ADDED to whatever is already there. Case Price is the
+// AVERAGE cost of one case, and Stock can represent any number of cases
+// (or a partial one) — so the cost VALUE this restock actually adds is
+// (addQty units) × (this case's per-unit cost), not casePrice taken
+// on its own. That new value is blended with the existing stock's cost
+// basis into a weighted-average per-unit cost (the standard "moving
+// average cost" inventory-costing method), then re-expressed as a Case
+// Price so the sheet's own Per Unit Price formula (Case Price / Units in
+// Case) recomputes to that blended value — there's no separate stored
+// field for per-unit cost to write directly. Selling Price is simply
+// replaced with the freshly-entered value (a forward-looking price
+// choice, not a historical cost to blend). If the SKU isn't present yet,
+// a new row is created with this batch's own numbers as-is (nothing to
+// blend against).
+//
+// Either way, the resulting TRUE per-unit cost/selling price are also
+// pushed into the matching Products row's Actual Price / Price per Unit —
+// see syncProductPricingFromInventory_ for why that needs Products' OWN
+// "Units per Package" (not this item's "Units in Case") to convert back
+// to the pack-total terms those two Products fields are defined in.
+//
+// No role check / locking here — callers (handleAddInventoryStock_,
+// handleBulkAddInventoryStock_) wrap those around it, the latter around a
+// whole batch rather than per item.
+function addOrRestockInventoryItem_(session, item) {
   const sku = String(item.sku || '').trim();
   if (!sku) return { sku: '', status: 'error', message: 'Missing SKU.' };
 
   const existing = getInventoryRowBySku_(sku);
+  const before = inventorySnapshot_(existing);
   const casePrice = Number(item.casePrice) || 0;
   const unitsInCase = Number(item.unitsInCase) || 0;
   const sellingPrice = Number(item.sellingPrice) || 0;
   const addQty = Number(item.stock) || 0;
 
+  let finalPricePerUnit = unitsInCase > 0 ? casePrice / unitsInCase : 0;
+  let finalCasePrice = casePrice;
+  let newStock;
+  let created;
+
   if (existing) {
-    const newStock = (Number(existing['Stock']) || 0) + addQty;
+    newStock = before.stock + addQty;
+
+    if (unitsInCase > 0 && newStock > 0) {
+      const newValue = addQty * (casePrice / unitsInCase);
+      finalPricePerUnit = ((before.stock * before.perUnitPrice) + newValue) / newStock;
+      finalCasePrice = finalPricePerUnit * unitsInCase;
+    }
+
     updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, {
       stock: newStock,
+      casePrice: finalCasePrice,
+      unitsInCase: unitsInCase,
+      sellingPrice: sellingPrice
+    }, INVENTORY_HEADER_ALIASES);
+    created = false;
+  } else {
+    newStock = addQty;
+    appendRowByHeaders_(INVENTORY_SHEET, {
+      sku: sku,
+      itemName: item.itemName || sku,
+      stock: addQty,
       casePrice: casePrice,
       unitsInCase: unitsInCase,
       sellingPrice: sellingPrice
     }, INVENTORY_HEADER_ALIASES);
-    return { sku: sku, status: 'success', created: false, newStock: newStock };
+    created = true;
   }
 
-  appendRowByHeaders_(INVENTORY_SHEET, {
-    sku: sku,
-    itemName: item.itemName || sku,
-    stock: addQty,
-    casePrice: casePrice,
+  const after = {
+    stock: newStock,
+    casePrice: finalCasePrice,
     unitsInCase: unitsInCase,
-    sellingPrice: sellingPrice
-  }, INVENTORY_HEADER_ALIASES);
-  return { sku: sku, status: 'success', created: true, newStock: addQty };
+    sellingPrice: sellingPrice,
+    perUnitPrice: finalPricePerUnit
+  };
+  logInventoryTransaction_(session, 'Restock', sku, item.itemName || (existing && existing['Item Name']) || sku, '', '', addQty, before, after);
+  syncProductPricingFromInventory_(sku, finalPricePerUnit, sellingPrice);
+
+  return { sku: sku, status: 'success', created: created, newStock: newStock };
+}
+
+// Pushes the TRUE per-unit cost/selling price that just landed in
+// Inventory into the matching Products row's Actual Price / Price per
+// Unit, so admin doesn't have to manually update both sheets after every
+// restock. Those two Products fields are PACK TOTALS (see
+// computeProductMargins_ in admin.js and the "Fix product margin math"
+// commit) — NOT per-unit despite "Price per Unit"'s name — so the true
+// per-unit figures from Inventory must be scaled up by Products' OWN
+// "Units per Package" before being written, never by this item's
+// "Units in Case": the two "units per X" fields describe different
+// things (Inventory's is how many units come in a wholesale case;
+// Products' is how many units make up one retail sale unit) and can
+// legitimately differ for the same SKU — e.g. cigarettes bought by the
+// case but sold individually (Units per Package = 1). Skipped entirely
+// if there's no Products row for this SKU, or its Units per Package
+// isn't set — guessing a pack size would risk writing a wrong number,
+// which is worse than just leaving Products' price stale.
+function syncProductPricingFromInventory_(sku, truePerUnitCost, truePerUnitSellingPrice) {
+  const product = getProductRowBySku_(sku);
+  if (!product) return;
+
+  const unitsPerPackage = Number(product['Units per Package']) || 0;
+  if (unitsPerPackage <= 0) return;
+
+  updateRowByHeaders_(PRODUCTS_SHEET, 'SKU', sku, {
+    actualPrice: truePerUnitCost * unitsPerPackage,
+    pricePerUnit: truePerUnitSellingPrice * unitsPerPackage
+  }, PRODUCT_HEADER_ALIASES);
 }
 
 function handleAddInventoryStock_(session, body) {
@@ -713,7 +912,7 @@ function handleAddInventoryStock_(session, body) {
   const sku = String(body.sku || '').trim();
   if (!sku) return { status: 'error', message: 'SKU is required.' };
 
-  return withLock_(() => addOrRestockInventoryItem_(body));
+  return withLock_(() => addOrRestockInventoryItem_(session, body));
 }
 
 // Same as handleAddInventoryStock_ but for a whole batch in ONE request —
@@ -730,7 +929,7 @@ function handleBulkAddInventoryStock_(session, body) {
   if (!items.length) return { status: 'error', message: 'No items provided.' };
 
   return withLock_(() => {
-    const results = items.map(item => addOrRestockInventoryItem_(item));
+    const results = items.map(item => addOrRestockInventoryItem_(session, item));
     return { status: 'success', results: results };
   });
 }
@@ -744,6 +943,10 @@ function handleUpdateInventoryItem_(session, body) {
   if (!sku) return { status: 'error', message: 'SKU is required.' };
 
   return withLock_(() => {
+    const existing = getInventoryRowBySku_(sku);
+    if (!existing) return { status: 'error', message: 'Inventory item not found.' };
+    const before = inventorySnapshot_(existing);
+
     const dataObj = {};
     if (body.hasOwnProperty('itemName')) dataObj.itemName = body.itemName;
     if (body.hasOwnProperty('stock')) dataObj.stock = Number(body.stock) || 0;
@@ -751,8 +954,19 @@ function handleUpdateInventoryItem_(session, body) {
     if (body.hasOwnProperty('unitsInCase')) dataObj.unitsInCase = Number(body.unitsInCase) || 0;
     if (body.hasOwnProperty('sellingPrice')) dataObj.sellingPrice = Number(body.sellingPrice) || 0;
 
-    const updated = updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, dataObj, INVENTORY_HEADER_ALIASES);
-    if (!updated) return { status: 'error', message: 'Inventory item not found.' };
+    updateRowByHeaders_(INVENTORY_SHEET, 'SKU', sku, dataObj, INVENTORY_HEADER_ALIASES);
+
+    const afterUnitsInCase = dataObj.hasOwnProperty('unitsInCase') ? dataObj.unitsInCase : before.unitsInCase;
+    const afterCasePrice = dataObj.hasOwnProperty('casePrice') ? dataObj.casePrice : before.casePrice;
+    const after = {
+      stock: dataObj.hasOwnProperty('stock') ? dataObj.stock : before.stock,
+      casePrice: afterCasePrice,
+      unitsInCase: afterUnitsInCase,
+      sellingPrice: dataObj.hasOwnProperty('sellingPrice') ? dataObj.sellingPrice : before.sellingPrice,
+      perUnitPrice: afterUnitsInCase > 0 ? afterCasePrice / afterUnitsInCase : 0
+    };
+    logInventoryTransaction_(session, 'Manual Edit', sku, dataObj.itemName || existing['Item Name'] || sku, '', '', after.stock - before.stock, before, after);
+
     return { status: 'success' };
   });
 }
@@ -764,8 +978,16 @@ function handleDeleteInventoryItem_(session, body) {
   if (!sku) return { status: 'error', message: 'SKU is required.' };
 
   return withLock_(() => {
+    const existing = getInventoryRowBySku_(sku);
+    if (!existing) return { status: 'error', message: 'Inventory item not found.' };
+    const before = inventorySnapshot_(existing);
+
     const deleted = deleteRowByHeaders_(INVENTORY_SHEET, 'SKU', sku);
     if (!deleted) return { status: 'error', message: 'Inventory item not found.' };
+
+    const after = { stock: 0, casePrice: 0, unitsInCase: 0, sellingPrice: 0, perUnitPrice: 0 };
+    logInventoryTransaction_(session, 'Delete', sku, existing['Item Name'] || sku, '', '', -before.stock, before, after);
+
     return { status: 'success' };
   });
 }
@@ -1070,7 +1292,7 @@ function handleSubmitDraftOrder_(session, body) {
   // decrementInventoryStock_ takes its own lock for the Inventory sheet —
   // see the comment on that function for why these are never nested).
   if (result.status === 'success') {
-    decrementInventoryStock_(body.items || []);
+    decrementInventoryStock_(session, body.items || [], body.orderId, body.customerName);
   }
 
   return result;
@@ -1110,7 +1332,7 @@ function doPost(e) {
 
     if (action === 'createOrder') {
       const result = handleCreateOrder_(body);
-      if (result.status === 'success') decrementInventoryStock_(body.items || []);
+      if (result.status === 'success') decrementInventoryStock_(session, body.items || [], body.orderId, body.customerName);
       return json_(result);
     }
 

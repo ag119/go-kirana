@@ -299,7 +299,7 @@
                 <div class="form-row-3">
                     <div>
                         <label>Stock (qty to add) *</label>
-                        <input type="number" id="invStockInput" class="input-standard" min="0" placeholder="e.g. 50">
+                        <input type="number" id="invStockInput" class="input-standard" min="0" placeholder="e.g. 50" oninput="updateInventoryMarginPreview()">
                     </div>
                     <div>
                         <label>Case Price *</label>
@@ -338,6 +338,18 @@
                 <input type="text" id="invMgmtSearch" placeholder="Search inventory by name or SKU..." onkeyup="filterInventoryMgmt()">
             </div>
             <div id="invMgmtList"></div>
+
+            <div class="section-title" style="margin-top:32px;">
+                <span>🧾 Inventory Log</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);" id="invLogCount">0 Entries</span>
+            </div>
+            <p style="font-size:0.82rem; color:var(--text-muted); margin:-8px 0 12px 0;">
+                Before/after snapshot for every restock, order, manual edit, and deletion — most recent first.
+            </p>
+            <div class="search-box">
+                <input type="text" id="invLogSearch" placeholder="Search log by SKU, item name, type, or reference..." onkeyup="filterInventoryLog()">
+            </div>
+            <div id="invLogList"></div>
         </div>
 
         <!-- TAB: ADD PRODUCTS (bulk add/update to the Products catalog sheet) -->
@@ -696,7 +708,11 @@
                 <span style="font-weight:700; font-size:0.9rem;">Estimated Total:</span>
                 <strong style="font-size:1.2rem; color:var(--primary-dark);" id="editOrderCartEstimatedTotal">₹0</strong>
             </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                <span style="font-size:0.8rem; color:var(--text-muted);">Actual Cost Total:</span>
+                <span style="font-size:0.9rem; color:var(--text-muted);" id="editOrderCartCostTotal">₹0</span>
+            </div>
 
-            <button class="btn-submit" onclick="saveEditOrder()" style="width:100%; margin-top:16px;">💾 Save Order Changes</button>
+            <button class="btn-submit" id="saveEditOrderBtn" onclick="saveEditOrder()" style="width:100%; margin-top:16px; transition: background-color 0.25s ease;">💾 Save Order Changes</button>
         </div>
     </div>

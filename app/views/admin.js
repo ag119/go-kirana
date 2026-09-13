@@ -32,6 +32,7 @@
 
     // Inventory management state
     let rawInventory = [];
+    let rawInventoryLog = [];
     let invSelectedSku = null;
     let invSelectedName = null;
     let editingInventorySku = null;
@@ -128,7 +129,7 @@
                 // spreadsheet and Apps Script has real concurrency limits,
                 // so firing many at once was the main source of
                 // "connection error, works on retry".
-                GK.api.getSheets(['Customers', 'Orders', 'Order Details', 'Products', 'Audit Log', 'Inventory'], { force })
+                GK.api.getSheets(['Customers', 'Orders', 'Order Details', 'Products', 'Audit Log', 'Inventory', 'Inventory Log'], { force })
             ]);
 
             rawCustomers = sheets['Customers'] || [];
@@ -137,6 +138,7 @@
             rawProducts = sheets['Products'] || [];
             const auditLog = sheets['Audit Log'] || [];
             rawInventory = sheets['Inventory'] || [];
+            rawInventoryLog = sheets['Inventory Log'] || [];
 
             productMapBySKU = {};
             productMapByNameAndPrice = {};
@@ -170,6 +172,7 @@
             renderDraftOrdersTab();
             renderAuditLogTab(auditLog);
             renderInventoryMgmtList(rawInventory);
+            renderInventoryLogTab(rawInventoryLog);
             // Re-render any queued-but-not-yet-submitted Inventory/Products
             // rows recovered from localStorage (see persistQueue_ above) so
             // they're visibly waiting for the admin right away, not only
@@ -1424,11 +1427,20 @@
     // Price / Units in Case; Margin % = markup over that per-unit cost, not
     // over Selling Price — confirmed against real sheet rows) so what's
     // shown while typing matches what the sheet will compute once saved.
+    // When restocking an item already in Inventory, also mirrors the
+    // weighted-average blending addOrRestockInventoryItem_ does server-side
+    // (see Code.gs) — showing this batch's own cost/margin alongside what
+    // the BLENDED result will look like once this restock is added to
+    // existing stock. Purely an estimate if the same SKU is already queued
+    // once this session but not yet submitted — this can't see that
+    // pending entry, only the last-synced rawInventory; the backend
+    // (which applies a queue in order) is authoritative for final numbers.
     // TARGET_MARGIN matches the 4% target already used in Inventory Guide.
     function updateInventoryMarginPreview() {
         const box = document.getElementById('invMarginPreview');
         if (!box) return;
 
+        const addQty = parseFloat(document.getElementById('invStockInput').value) || 0;
         const casePrice = parseFloat(document.getElementById('invCasePriceInput').value);
         const unitsInCase = parseFloat(document.getElementById('invUnitsInCaseInput').value);
         const sellingPrice = parseFloat(document.getElementById('invSellingPriceInput').value);
@@ -1439,16 +1451,48 @@
         }
 
         const TARGET_MARGIN = 4.0;
-        const perUnitCost = casePrice / unitsInCase;
-        const margin = perUnitCost > 0 ? ((sellingPrice - perUnitCost) / perUnitCost) * 100 : 0;
+        const marginColor = (cost, price) => {
+            const margin = cost > 0 ? ((price - cost) / cost) * 100 : 0;
+            if (margin >= TARGET_MARGIN) return '#10b981';
+            if (margin >= 0) return '#d97706';
+            return '#ef4444';
+        };
+        const marginPct = (cost, price) => (cost > 0 ? ((price - cost) / cost) * 100 : 0).toLocaleString('en-IN', {maximumFractionDigits:2});
 
-        let color = '#ef4444'; // loss
-        if (margin >= TARGET_MARGIN) color = '#10b981'; // at/above target
-        else if (margin >= 0) color = '#d97706'; // positive but below target
+        const thisBatchCost = casePrice / unitsInCase;
+        let html = `Cost per unit: <strong>₹${thisBatchCost.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
+            &nbsp;•&nbsp; Margin: <strong style="color:${marginColor(thisBatchCost, sellingPrice)};">${marginPct(thisBatchCost, sellingPrice)}%</strong>
+            ${marginColor(thisBatchCost, sellingPrice) !== '#10b981' ? `<span style="color:var(--text-muted); font-size:0.78rem;"> (target ${TARGET_MARGIN}%+)</span>` : ''}`;
 
-        box.innerHTML = `Cost per unit: <strong>₹${perUnitCost.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
-            &nbsp;•&nbsp; Margin: <strong style="color:${color};">${margin.toLocaleString('en-IN', {maximumFractionDigits:2})}%</strong>
-            ${margin < TARGET_MARGIN ? `<span style="color:var(--text-muted); font-size:0.78rem;"> (target ${TARGET_MARGIN}%+)</span>` : ''}`;
+        const existing = invSelectedSku ? rawInventory.find(r => String(r['SKU'] || '').trim() === invSelectedSku) : null;
+        if (existing && addQty > 0) {
+            const existingStock = Number(existing['Stock']) || 0;
+            const existingUnitsInCase = Number(existing['Units in case'] ?? existing['Units In Case']) || 0;
+            const existingCasePrice = Number(existing['Case Price']) || 0;
+            const existingPPU = Number(existing['Per Unit Price']) ||
+                (existingUnitsInCase > 0 ? existingCasePrice / existingUnitsInCase : 0);
+
+            const newStock = existingStock + addQty;
+            const blendedPPU = newStock > 0 ? ((existingStock * existingPPU) + (addQty * thisBatchCost)) / newStock : thisBatchCost;
+
+            html += `
+            <div style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+                <div style="color:var(--text-muted); font-size:0.78rem;">
+                    Existing: ${existingStock.toLocaleString('en-IN')} units @ ₹${existingPPU.toLocaleString('en-IN', {maximumFractionDigits:2})}/unit
+                    &nbsp;+&nbsp; Adding: ${addQty.toLocaleString('en-IN')} units @ ₹${thisBatchCost.toLocaleString('en-IN', {maximumFractionDigits:2})}/unit
+                </div>
+                <div style="margin-top:4px;">
+                    After restock — Blended cost/unit: <strong>₹${blendedPPU.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
+                    &nbsp;•&nbsp; Margin: <strong style="color:${marginColor(blendedPPU, sellingPrice)};">${marginPct(blendedPPU, sellingPrice)}%</strong>
+                </div>
+                <div style="margin-top:4px; color:var(--text-muted); font-size:0.78rem;">
+                    New total stock: <strong style="color:var(--text-main);">${newStock.toLocaleString('en-IN')}</strong> units
+                    &nbsp;•&nbsp; New inventory value: <strong style="color:var(--text-main);">₹${(blendedPPU * newStock).toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
+                </div>
+            </div>`;
+        }
+
+        box.innerHTML = html;
         box.style.display = 'block';
     }
 
@@ -1558,6 +1602,9 @@
     async function refreshInventoryMgmt() {
         rawInventory = await GK.api.getSheet('Inventory', { force: true });
         renderInventoryMgmtList(rawInventory);
+
+        rawInventoryLog = await GK.api.getSheet('Inventory Log', { force: true });
+        renderInventoryLogTab(rawInventoryLog);
     }
 
     function filterInventoryMgmt() {
@@ -1652,6 +1699,101 @@
                     </div>
                 </div>`;
             }).join('')}
+        </div>`;
+    }
+
+    // --- INVENTORY LOG (read-only) ------------------------------------------
+    // Before/after snapshot for every Inventory-changing transaction —
+    // Restock, Order (create/edit, either direction), Manual Edit, Delete —
+    // written by logInventoryTransaction_ in Code.gs. Same table-style
+    // rendering as the Audit Log tab; kept inside "Manage Inventory" since
+    // it's specific to that data, not a standalone top-level tab.
+    function filterInventoryLog() {
+        const q = document.getElementById('invLogSearch').value.toLowerCase();
+        const filtered = rawInventoryLog.filter(r =>
+            (r['SKU'] || '').toLowerCase().includes(q) ||
+            (r['Item Name'] || '').toLowerCase().includes(q) ||
+            (r['Type'] || '').toLowerCase().includes(q) ||
+            (r['Reference'] || '').toLowerCase().includes(q) ||
+            (r['Customer'] || '').toLowerCase().includes(q)
+        );
+        renderInventoryLogTab(filtered);
+    }
+
+    function renderInventoryLogTab(rows) {
+        const container = document.getElementById('invLogList');
+        if (!container) return;
+        document.getElementById('invLogCount').innerText = `${rows.length} Entries`;
+
+        if (!rows.length) {
+            container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; padding:16px;">No inventory log entries yet.</p>';
+            return;
+        }
+
+        const sorted = rows.slice().sort((a, b) => String(b['Timestamp']).localeCompare(String(a['Timestamp'])));
+
+        const TYPE_COLORS = {
+            'Restock': '#10b981',
+            'Order': '#3b82f6',
+            'Manual Edit': '#d97706',
+            'Delete': '#ef4444'
+        };
+
+        // Before → After shown as one compact cell per field — e.g.
+        // "120 → 172" — rather than four separate before/after columns per
+        // field, which would make this table unreadably wide. Unchanged
+        // values (e.g. Case Price on a plain Order/sale row) still show
+        // "→" for consistency rather than being hidden conditionally.
+        const change = (before, after, prefix) => {
+            const b = toNum(before), a = toNum(after);
+            const fmt = v => `${prefix || ''}${v.toLocaleString('en-IN', {maximumFractionDigits:2})}`;
+            if (b === a) return fmt(a);
+            return `${fmt(b)} → <strong>${fmt(a)}</strong>`;
+        };
+
+        container.innerHTML = `
+        <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+            <thead>
+                <tr style="text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); text-transform:uppercase; font-size:0.68rem; letter-spacing:0.04em;">
+                    <th style="padding:8px;">Time</th>
+                    <th style="padding:8px;">Type</th>
+                    <th style="padding:8px;">Item</th>
+                    <th style="padding:8px;">Reference</th>
+                    <th style="padding:8px; text-align:right;">Qty Δ</th>
+                    <th style="padding:8px; text-align:right;">Stock</th>
+                    <th style="padding:8px; text-align:right;">Case Price</th>
+                    <th style="padding:8px; text-align:right;">Selling Price</th>
+                    <th style="padding:8px; text-align:right;">Per Unit</th>
+                    <th style="padding:8px;">By</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sorted.map(r => {
+                    const qtyChange = toNum(r['Qty Change']);
+                    const type = r['Type'] || '';
+                    return `
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:8px; white-space:nowrap;">${r['Timestamp'] ? new Date(r['Timestamp']).toLocaleString('en-IN') : ''}</td>
+                        <td style="padding:8px;"><span style="color:${TYPE_COLORS[type] || 'var(--text-main)'}; font-weight:700;">${type}</span></td>
+                        <td style="padding:8px;">
+                            <div style="font-weight:700;">${r['Item Name'] || ''}</div>
+                            <div style="font-family:monospace; font-size:0.72rem; color:var(--text-muted);">${r['SKU'] || ''}</div>
+                        </td>
+                        <td style="padding:8px;">
+                            ${r['Reference'] ? `<div style="font-family:monospace; font-size:0.75rem;">${r['Reference']}</div>` : ''}
+                            ${r['Customer'] ? `<div style="font-size:0.75rem; color:var(--text-muted);">${r['Customer']}</div>` : ''}
+                        </td>
+                        <td style="padding:8px; text-align:right; font-weight:700; ${qtyChange > 0 ? 'color:#10b981;' : (qtyChange < 0 ? 'color:#ef4444;' : '')}">${qtyChange > 0 ? '+' : ''}${qtyChange}</td>
+                        <td style="padding:8px; text-align:right;">${change(r['Stock Before'], r['Stock After'])}</td>
+                        <td style="padding:8px; text-align:right;">${change(r['Case Price Before'], r['Case Price After'], '₹')}</td>
+                        <td style="padding:8px; text-align:right;">${change(r['Selling Price Before'], r['Selling Price After'], '₹')}</td>
+                        <td style="padding:8px; text-align:right;">${change(r['Per Unit Price Before'], r['Per Unit Price After'], '₹')}</td>
+                        <td style="padding:8px; font-size:0.75rem; color:var(--text-muted);">${r['Username'] || ''}</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>
         </div>`;
     }
 
@@ -2263,39 +2405,52 @@
     function renderEditOrderCart() {
         const container = document.getElementById('editOrderCartItemsList');
         let estTotal = 0;
+        let estCostTotal = 0;
 
         if (!editOrderCartItems.length) {
             container.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem;">No items.</p>';
             document.getElementById('editOrderCartEstimatedTotal').innerText = '₹0';
+            document.getElementById('editOrderCartCostTotal').innerText = '₹0';
             return;
         }
 
         container.innerHTML = editOrderCartItems.map((item, idx) => {
             const itemTotal = (item.unitPrice || 0) * item.qty;
+            const itemCostTotal = (item.costPrice || 0) * item.qty;
             estTotal += itemTotal;
+            estCostTotal += itemCostTotal;
             const rowStyle = item.flagged
-                ? 'display:flex; justify-content:space-between; align-items:center; padding:6px 8px; margin:2px 0; border-radius:6px; background:#fffbeb; border-bottom:1px solid var(--border); font-size:0.85rem; gap:8px;'
-                : 'display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem; gap:8px;';
+                ? 'padding:6px 8px; margin:2px 0; border-radius:6px; background:#fffbeb; border-bottom:1px solid var(--border); font-size:0.85rem;'
+                : 'padding:6px 0; border-bottom:1px solid var(--border); font-size:0.85rem;';
             return `
             <div style="${rowStyle}">
-                <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    <button title="${item.flagged ? 'Marked — needs review. Click to clear.' : 'Not marked'}" style="border:none; background:none; cursor:pointer; font-size:0.95rem; opacity:${item.flagged ? '1' : '0.25'}; padding:0 4px 0 0;" onclick="toggleEditOrderItemFlag(${idx})">🚩</button>
-                    <strong>${item.name}</strong>
-                    ${item.flagged && item.flagNote ? `<div style="font-size:0.72rem; color:#92400e; margin-left:22px;">${item.flagNote.replace(/</g, '&lt;')}</div>` : ''}
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                    <div style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        <button title="${item.flagged ? 'Marked — needs review. Click to clear.' : 'Not marked'}" style="border:none; background:none; cursor:pointer; font-size:0.95rem; opacity:${item.flagged ? '1' : '0.25'}; padding:0 4px 0 0;" onclick="toggleEditOrderItemFlag(${idx})">🚩</button>
+                        <strong>${item.name}</strong>
+                        ${item.flagged && item.flagNote ? `<div style="font-size:0.72rem; color:#92400e; margin-left:22px;">${item.flagNote.replace(/</g, '&lt;')}</div>` : ''}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                        <input type="number" min="1" value="${item.qty}" onchange="updateEditOrderItemQty(${idx}, this.value)" style="width:48px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Quantity">
+                        <span style="color:var(--text-muted);">×</span>
+                        <span style="color:var(--text-muted);">₹</span>
+                        <input type="number" min="0" step="0.01" value="${item.unitPrice || 0}" onchange="updateEditOrderItemPrice(${idx}, this.value)" style="width:72px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Unit price">
+                        <strong style="min-width:70px; text-align:right;">₹${itemTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
+                        <button onclick="removeEditOrderCartItem(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button>
+                    </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                    <input type="number" min="1" value="${item.qty}" onchange="updateEditOrderItemQty(${idx}, this.value)" style="width:48px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Quantity">
-                    <span style="color:var(--text-muted);">×</span>
-                    <span style="color:var(--text-muted);">₹</span>
-                    <input type="number" min="0" step="0.01" value="${item.unitPrice || 0}" onchange="updateEditOrderItemPrice(${idx}, this.value)" style="width:72px; padding:4px 6px; border:1px solid var(--border); border-radius:6px; font-size:0.8rem;" title="Unit price">
-                    <strong style="min-width:70px; text-align:right;">₹${itemTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</strong>
-                    <button onclick="removeEditOrderCartItem(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button>
+                <div style="display:flex; justify-content:flex-end; align-items:center; gap:6px; margin-top:4px; font-size:0.75rem; color:var(--text-muted);">
+                    <span>Actual Cost:</span>
+                    <span>₹</span>
+                    <input type="number" min="0" step="0.01" value="${item.costPrice || 0}" onchange="updateEditOrderItemCostPrice(${idx}, this.value)" style="width:64px; padding:3px 5px; border:1px solid var(--border); border-radius:6px; font-size:0.75rem;" title="Actual cost per unit">
+                    <span>× ${item.qty} = ₹${itemCostTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}</span>
                 </div>
             </div>
             `;
         }).join('');
 
         document.getElementById('editOrderCartEstimatedTotal').innerText = `₹${estTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}`;
+        document.getElementById('editOrderCartCostTotal').innerText = `₹${estCostTotal.toLocaleString('en-IN', {maximumFractionDigits:2})}`;
     }
 
     function updateEditOrderItemQty(idx, value) {
@@ -2311,6 +2466,14 @@
         if (!item) return;
         const price = parseFloat(value);
         item.unitPrice = (isNaN(price) || price < 0) ? 0 : price;
+        renderEditOrderCart();
+    }
+
+    function updateEditOrderItemCostPrice(idx, value) {
+        const item = editOrderCartItems[idx];
+        if (!item) return;
+        const cost = parseFloat(value);
+        item.costPrice = (isNaN(cost) || cost < 0) ? 0 : cost;
         renderEditOrderCart();
     }
 
@@ -2341,7 +2504,21 @@
         const deliveryCharge = parseFloat(document.getElementById('editOrderDeliveryCharge').value) || 0;
         const damageCost = parseFloat(document.getElementById('editOrderDamageCost').value) || 0;
 
+        const btn = document.getElementById('saveEditOrderBtn');
+        const originalLabel = btn.innerHTML;
+        const originalBg = btn.style.backgroundColor;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Saving...';
+
         try {
+            // Amounts (Calculated Total / Actual Cost Total) are per-item
+            // fields written ONLY to "Order Details" here — never to the
+            // "Orders" sheet. Orders' own Bill Amount / Actual Cost / Profit
+            // are formula-derived from Order Details (see ORDER_HEADER_ALIASES
+            // and handleUpdateOrder_ in Code.gs, which only ever touches
+            // Orders' Fulfillment Date / Delivery Charge / Damage Cost) — so
+            // they recalculate on their own once Order Details changes below,
+            // rather than this code computing and pushing a total itself.
             await GK.api.updateOrder({
                 orderId: editingOrderId,
                 fulfillmentDate: fulfillmentDate,
@@ -2359,6 +2536,13 @@
                 }))
             });
 
+            // Brief visible acknowledgment before the modal closes, rather
+            // than the previous silent close — the button itself is the
+            // confirmation, no separate toast plumbing needed.
+            btn.innerHTML = '✅ Saved!';
+            btn.style.backgroundColor = '#16a34a';
+            await new Promise(resolve => setTimeout(resolve, 700));
+
             closeModal('editOrderModal');
             editingOrderId = null;
             editOrderCartItems = [];
@@ -2370,7 +2554,14 @@
             // just patching the Orders Stream card in place.
             await fetchLiveData(true);
         } catch (err) {
+            btn.innerHTML = '❌ Failed';
+            btn.style.backgroundColor = '#dc2626';
             alert('⚠️ ' + (err.message || 'Failed to save order changes.'));
+            await new Promise(resolve => setTimeout(resolve, 900));
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalLabel;
+            btn.style.backgroundColor = originalBg;
         }
     }
 
@@ -3297,6 +3488,7 @@
         removeInventoryQueueItem,
         submitInventoryQueue,
         filterInventoryMgmt,
+        filterInventoryLog,
         editInventoryItem,
         saveInventoryItemEdit,
         deleteInventoryItemPrompt,
@@ -3315,6 +3507,7 @@
         removeEditOrderCartItem,
         updateEditOrderItemQty,
         updateEditOrderItemPrice,
+        updateEditOrderItemCostPrice,
         toggleEditOrderItemFlag,
         saveEditOrder,
         handleSkuTraceSearchInput,
