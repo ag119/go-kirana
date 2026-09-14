@@ -1702,6 +1702,18 @@
         </div>`;
     }
 
+    // Toggles between the "Current Inventory" and "Inventory Log" sub-tabs
+    // within Manage Inventory — a separate, locally-scoped switcher from
+    // the shell's own switchTab() (which operates on every .tab-content/
+    // .pill-btn on the page), since nesting inside that global mechanism
+    // would fight with top-level tab switching.
+    function switchInventorySubtab(which) {
+        document.getElementById('invSubtabItemsBtn').classList.toggle('active', which === 'items');
+        document.getElementById('invSubtabLogBtn').classList.toggle('active', which === 'log');
+        document.getElementById('invSubtabItems').style.display = which === 'items' ? 'block' : 'none';
+        document.getElementById('invSubtabLog').style.display = which === 'log' ? 'block' : 'none';
+    }
+
     // --- INVENTORY LOG (read-only) ------------------------------------------
     // Before/after snapshot for every Inventory-changing transaction —
     // Restock, Order (create/edit, either direction), Manual Edit, Delete —
@@ -1763,6 +1775,7 @@
                     <th style="padding:8px; text-align:right;">Qty Δ</th>
                     <th style="padding:8px; text-align:right;">Stock</th>
                     <th style="padding:8px; text-align:right;">Case Price</th>
+                    <th style="padding:8px; text-align:right;">This Restock</th>
                     <th style="padding:8px; text-align:right;">Selling Price</th>
                     <th style="padding:8px; text-align:right;">Per Unit</th>
                     <th style="padding:8px;">By</th>
@@ -1787,6 +1800,7 @@
                         <td style="padding:8px; text-align:right; font-weight:700; ${qtyChange > 0 ? 'color:#10b981;' : (qtyChange < 0 ? 'color:#ef4444;' : '')}">${qtyChange > 0 ? '+' : ''}${qtyChange}</td>
                         <td style="padding:8px; text-align:right;">${change(r['Stock Before'], r['Stock After'])}</td>
                         <td style="padding:8px; text-align:right;">${change(r['Case Price Before'], r['Case Price After'], '₹')}</td>
+                        <td style="padding:8px; text-align:right;">${r['Restock Case Price'] !== undefined && r['Restock Case Price'] !== '' ? `₹${toNum(r['Restock Case Price']).toLocaleString('en-IN', {maximumFractionDigits:2})}` : '—'}</td>
                         <td style="padding:8px; text-align:right;">${change(r['Selling Price Before'], r['Selling Price After'], '₹')}</td>
                         <td style="padding:8px; text-align:right;">${change(r['Per Unit Price Before'], r['Per Unit Price After'], '₹')}</td>
                         <td style="padding:8px; font-size:0.75rem; color:var(--text-muted);">${r['Username'] || ''}</td>
@@ -3489,6 +3503,7 @@
         submitInventoryQueue,
         filterInventoryMgmt,
         filterInventoryLog,
+        switchInventorySubtab,
         editInventoryItem,
         saveInventoryItemEdit,
         deleteInventoryItemPrompt,

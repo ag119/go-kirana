@@ -331,25 +331,35 @@
             </div>
 
             <div class="section-title">
-                <span>📋 Current Inventory</span>
-                <span style="font-size:0.8rem; color:var(--text-muted);" id="invMgmtCount">0 Items</span>
+                <span>📦 Inventory</span>
             </div>
-            <div class="search-box">
-                <input type="text" id="invMgmtSearch" placeholder="Search inventory by name or SKU..." onkeyup="filterInventoryMgmt()">
+            <div class="mode-toggle" style="max-width:420px;">
+                <button type="button" id="invSubtabItemsBtn" class="active" onclick="switchInventorySubtab('items')">📋 Current Inventory</button>
+                <button type="button" id="invSubtabLogBtn" onclick="switchInventorySubtab('log')">🧾 Inventory Log</button>
             </div>
-            <div id="invMgmtList"></div>
 
-            <div class="section-title" style="margin-top:32px;">
-                <span>🧾 Inventory Log</span>
-                <span style="font-size:0.8rem; color:var(--text-muted);" id="invLogCount">0 Entries</span>
+            <div id="invSubtabItems">
+                <div style="text-align:right;">
+                    <span style="font-size:0.8rem; color:var(--text-muted);" id="invMgmtCount">0 Items</span>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="invMgmtSearch" placeholder="Search inventory by name or SKU..." onkeyup="filterInventoryMgmt()">
+                </div>
+                <div id="invMgmtList" style="max-height:65vh; overflow-y:auto;"></div>
             </div>
-            <p style="font-size:0.82rem; color:var(--text-muted); margin:-8px 0 12px 0;">
-                Before/after snapshot for every restock, order, manual edit, and deletion — most recent first.
-            </p>
-            <div class="search-box">
-                <input type="text" id="invLogSearch" placeholder="Search log by SKU, item name, type, or reference..." onkeyup="filterInventoryLog()">
+
+            <div id="invSubtabLog" style="display:none;">
+                <div style="text-align:right;">
+                    <span style="font-size:0.8rem; color:var(--text-muted);" id="invLogCount">0 Entries</span>
+                </div>
+                <p style="font-size:0.82rem; color:var(--text-muted); margin:4px 0 12px 0;">
+                    Before/after snapshot for every restock, order, manual edit, and deletion — most recent first.
+                </p>
+                <div class="search-box">
+                    <input type="text" id="invLogSearch" placeholder="Search log by SKU, item name, type, or reference..." onkeyup="filterInventoryLog()">
+                </div>
+                <div id="invLogList" style="max-height:65vh; overflow-y:auto;"></div>
             </div>
-            <div id="invLogList"></div>
         </div>
 
         <!-- TAB: ADD PRODUCTS (bulk add/update to the Products catalog sheet) -->

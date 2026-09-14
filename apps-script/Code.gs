@@ -714,7 +714,7 @@ const INVENTORY_LOG_SHEET = 'Inventory Log';
 const INVENTORY_LOG_HEADERS = [
   'Timestamp', 'Username', 'Role', 'Type', 'SKU', 'Item Name', 'Reference', 'Customer',
   'Qty Change', 'Stock Before', 'Stock After',
-  'Case Price Before', 'Case Price After',
+  'Case Price Before', 'Restock Case Price', 'Case Price After',
   'Units in Case Before', 'Units in Case After',
   'Selling Price Before', 'Selling Price After',
   'Per Unit Price Before', 'Per Unit Price After',
@@ -733,6 +733,7 @@ const INVENTORY_LOG_HEADER_ALIASES = {
   stockBefore: ['Stock Before'],
   stockAfter: ['Stock After'],
   casePriceBefore: ['Case Price Before'],
+  restockCasePrice: ['Restock Case Price'],
   casePriceAfter: ['Case Price After'],
   unitsInCaseBefore: ['Units in Case Before'],
   unitsInCaseAfter: ['Units in Case After'],
@@ -767,7 +768,13 @@ function inventorySnapshot_(row) {
 // at that moment (never a live formula) since Case Price/Units in Case
 // can keep changing afterwards and a historical entry needs to reflect
 // what was true then, not now.
-function logInventoryTransaction_(session, type, sku, itemName, reference, customer, qtyChange, before, after) {
+//
+// `restockCasePrice` (optional) is the price actually entered for THIS
+// restock's case, before it gets blended into the sheet's running average
+// — Case Price Before/After only show the sheet's own value ahead of and
+// behind this transaction, neither of which is what was typed in. Left
+// undefined for every transaction type except Restock.
+function logInventoryTransaction_(session, type, sku, itemName, reference, customer, qtyChange, before, after, restockCasePrice) {
   ensureSheetExists_(INVENTORY_LOG_SHEET, INVENTORY_LOG_HEADERS);
   appendRowByHeaders_(INVENTORY_LOG_SHEET, {
     timestamp: new Date(),
@@ -782,6 +789,7 @@ function logInventoryTransaction_(session, type, sku, itemName, reference, custo
     stockBefore: before.stock,
     stockAfter: after.stock,
     casePriceBefore: before.casePrice,
+    restockCasePrice: restockCasePrice !== undefined ? restockCasePrice : '',
     casePriceAfter: after.casePrice,
     unitsInCaseBefore: before.unitsInCase,
     unitsInCaseAfter: after.unitsInCase,
@@ -808,13 +816,14 @@ function logInventoryTransaction_(session, type, sku, itemName, reference, custo
 // replaced with the freshly-entered value (a forward-looking price
 // choice, not a historical cost to blend). If the SKU isn't present yet,
 // a new row is created with this batch's own numbers as-is (nothing to
-// blend against).
-//
-// Either way, the resulting TRUE per-unit cost/selling price are also
-// pushed into the matching Products row's Actual Price / Price per Unit —
-// see syncProductPricingFromInventory_ for why that needs Products' OWN
-// "Units per Package" (not this item's "Units in Case") to convert back
-// to the pack-total terms those two Products fields are defined in.
+// blend against). Deliberately does NOT touch the Products catalog:
+// Inventory's "unit" (Units in Case) and Products' "unit" (Units per
+// Package, used directly as the price charged per order quantity in
+// orders.js/agent.js) aren't reliably the same thing for a given SKU —
+// sometimes Inventory tracks by the case, sometimes by the individual
+// item — and there's no safe way to convert between them automatically
+// without risking a wrong customer-facing price. Products' own prices
+// stay admin-entered only, via Add/Update Products.
 //
 // No role check / locking here — callers (handleAddInventoryStock_,
 // handleBulkAddInventoryStock_) wrap those around it, the latter around a
@@ -871,39 +880,9 @@ function addOrRestockInventoryItem_(session, item) {
     sellingPrice: sellingPrice,
     perUnitPrice: finalPricePerUnit
   };
-  logInventoryTransaction_(session, 'Restock', sku, item.itemName || (existing && existing['Item Name']) || sku, '', '', addQty, before, after);
-  syncProductPricingFromInventory_(sku, finalPricePerUnit, sellingPrice);
+  logInventoryTransaction_(session, 'Restock', sku, item.itemName || (existing && existing['Item Name']) || sku, '', '', addQty, before, after, casePrice);
 
   return { sku: sku, status: 'success', created: created, newStock: newStock };
-}
-
-// Pushes the TRUE per-unit cost/selling price that just landed in
-// Inventory into the matching Products row's Actual Price / Price per
-// Unit, so admin doesn't have to manually update both sheets after every
-// restock. Those two Products fields are PACK TOTALS (see
-// computeProductMargins_ in admin.js and the "Fix product margin math"
-// commit) — NOT per-unit despite "Price per Unit"'s name — so the true
-// per-unit figures from Inventory must be scaled up by Products' OWN
-// "Units per Package" before being written, never by this item's
-// "Units in Case": the two "units per X" fields describe different
-// things (Inventory's is how many units come in a wholesale case;
-// Products' is how many units make up one retail sale unit) and can
-// legitimately differ for the same SKU — e.g. cigarettes bought by the
-// case but sold individually (Units per Package = 1). Skipped entirely
-// if there's no Products row for this SKU, or its Units per Package
-// isn't set — guessing a pack size would risk writing a wrong number,
-// which is worse than just leaving Products' price stale.
-function syncProductPricingFromInventory_(sku, truePerUnitCost, truePerUnitSellingPrice) {
-  const product = getProductRowBySku_(sku);
-  if (!product) return;
-
-  const unitsPerPackage = Number(product['Units per Package']) || 0;
-  if (unitsPerPackage <= 0) return;
-
-  updateRowByHeaders_(PRODUCTS_SHEET, 'SKU', sku, {
-    actualPrice: truePerUnitCost * unitsPerPackage,
-    pricePerUnit: truePerUnitSellingPrice * unitsPerPackage
-  }, PRODUCT_HEADER_ALIASES);
 }
 
 function handleAddInventoryStock_(session, body) {
