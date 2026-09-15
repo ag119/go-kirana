@@ -3377,13 +3377,14 @@
             const order = orderById[orderId];
             const qty = parseFloat(it['Quantity']) || 0;
             const unitPrice = toNum(it['Unit Price']);
+            const actualPrice = toNum(it['Actual Price']);
             const total = toNum(it['Calculated Total']) || (qty * unitPrice);
             return {
                 orderId,
                 date: order ? normalizeSheetDate(order['Order Date']) : '',
                 deliveryDate: order ? normalizeSheetDate(order['Fulfillment Date'] || order['Fulfilment Date'] || order['Order Date']) : '',
                 customerName: order ? (order['CustomerName'] || 'Unknown') : 'Unknown (order not found)',
-                qty, unitPrice, total
+                qty, unitPrice, actualPrice, total
             };
         }).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.orderId.localeCompare(a.orderId));
 
@@ -3423,6 +3424,7 @@
                     <th style="padding:8px;">Customer</th>
                     <th style="padding:8px; text-align:center;">Qty</th>
                     <th style="padding:8px; text-align:right;">Unit Price</th>
+                    <th style="padding:8px; text-align:right;">Actual Price</th>
                     <th style="padding:8px; text-align:right;">Total</th>
                 </tr>
             </thead>
@@ -3435,6 +3437,7 @@
                     <td style="padding:8px;">${r.customerName}</td>
                     <td style="padding:8px; text-align:center;">${r.qty}</td>
                     <td style="padding:8px; text-align:right;">₹${r.unitPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
+                    <td style="padding:8px; text-align:right; color:var(--text-muted);">₹${r.actualPrice.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
                     <td style="padding:8px; text-align:right; font-weight:700;">₹${r.total.toLocaleString('en-IN', {maximumFractionDigits:2})}</td>
                 </tr>`).join('')}
             </tbody>
