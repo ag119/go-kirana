@@ -191,6 +191,14 @@
                             <label for="itemsNeeded" class="block text-sm font-bold text-navy mb-2">Items Needed / सामान की लिस्ट</label>
                             <textarea id="itemsNeeded" rows="4" placeholder="Example: 2 peti Parle-G, 10kg Aashirvaad Atta, 5 dozen Lifebuoy..." class="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-navy font-medium"></textarea>
                         </div>
+                        <div>
+                            <label class="block text-sm font-bold text-navy mb-2">Shop Location / दुकान की लोकेशन <span class="font-medium text-gray-400">(optional)</span></label>
+                            <button type="button" id="locationBtn" onclick="captureLocation()" class="w-full px-5 py-4 bg-gray-50 border border-dashed border-gray-300 rounded-2xl text-navy font-semibold flex items-center justify-center gap-2 btn-active">
+                                <i class="fas fa-location-crosshairs text-brandRed"></i>
+                                <span id="locationBtnText">Share Current Location</span>
+                            </button>
+                            <p id="locationStatus" class="text-xs text-gray-500 mt-2">Tap this while you are at your shop for faster delivery.</p>
+                        </div>
                         <button onclick="handleWhatsAppOrder()" class="w-full bg-whatsappGreen text-white py-4 px-2 rounded-2xl font-extrabold text-base md:text-lg btn-active shadow-lg flex items-center justify-center gap-2 mt-4">
                             <i class="fab fa-whatsapp text-xl md:text-2xl flex-shrink-0"></i> 
                             <span class="text-center leading-tight">Send Order on WhatsApp</span>
@@ -242,6 +250,38 @@
             setTimeout(() => el.classList.remove('show'), 3000);
         }
 
+        let shopLocation = null; // { lat, lng }
+
+        function captureLocation() {
+            const btnText = document.getElementById('locationBtnText');
+            const status = document.getElementById('locationStatus');
+
+            if (!navigator.geolocation) {
+                status.innerText = "Location is not supported on this device.";
+                return;
+            }
+
+            btnText.innerText = "Getting location...";
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    shopLocation = {
+                        lat: pos.coords.latitude.toFixed(6),
+                        lng: pos.coords.longitude.toFixed(6)
+                    };
+                    btnText.innerText = "Location Added ✓";
+                    status.innerHTML = `Accuracy ~${Math.round(pos.coords.accuracy)}m · <a href="https://www.google.com/maps?q=${shopLocation.lat},${shopLocation.lng}" target="_blank" class="underline text-navy">View on map</a>`;
+                },
+                (err) => {
+                    shopLocation = null;
+                    btnText.innerText = "Share Current Location";
+                    status.innerText = err.code === err.PERMISSION_DENIED
+                        ? "Location permission denied. You can still send the order."
+                        : "Could not get location. Please try again.";
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
+        }
+
         function handleWhatsAppOrder() {
             const businessNumber = "917678153075"; // Actual number here
             const shop = document.getElementById('shopName').value.trim();
@@ -263,10 +303,15 @@
             }
 
             // Formatting the message
-            const message = `New Order from Go-Kirana Website!%0A` +
+            let message = `New Order from Go-Kirana Website!%0A` +
                             `*Shop:* ${encodeURIComponent(shop)}%0A` +
                             `*Phone:* ${encodeURIComponent(phone)}%0A` +
                             `*Items:*%0A${encodeURIComponent(list)}`;
+
+            if (shopLocation) {
+                const mapsUrl = `https://www.google.com/maps?q=${shopLocation.lat},${shopLocation.lng}`;
+                message += `%0A%0A*Location:* ${encodeURIComponent(mapsUrl)}`;
+            }
 
             const whatsappUrl = `https://wa.me/${businessNumber}?text=${message}`;
             
