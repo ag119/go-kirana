@@ -10,6 +10,29 @@
 
       gtag('config', 'AW-11016501475');
     </script>
+    <!-- Event snippet for Page view conversion page
+    In your html page, add the snippet and call gtag_report_conversion when someone clicks on the chosen link or button. -->
+    <script>
+    function gtag_report_conversion(url) {
+      var done = false;
+      var callback = function () {
+        if (done) return;
+        done = true;
+        if (typeof(url) != 'undefined') {
+          window.location = url;
+        }
+      };
+      gtag('event', 'conversion', {
+          'send_to': 'AW-11016501475/9ijsCLPli54dEOPxiYUp',
+          'value': 1.0,
+          'currency': 'INR',
+          'event_callback': callback
+      });
+      // Still redirect if the Google tag is blocked (ad blockers) or slow, so the order is never stuck
+      setTimeout(callback, 1000);
+      return false;
+    }
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Go-Kirana | Aapki Dukaan Ka Wholesale Partner</title>
@@ -191,18 +214,11 @@
                             <label for="itemsNeeded" class="block text-sm font-bold text-navy mb-2">Items Needed / सामान की लिस्ट</label>
                             <textarea id="itemsNeeded" rows="4" placeholder="Example: 2 peti Parle-G, 10kg Aashirvaad Atta, 5 dozen Lifebuoy..." class="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl text-navy font-medium"></textarea>
                         </div>
-                        <div>
-                            <label class="block text-sm font-bold text-navy mb-2">Shop Location / दुकान की लोकेशन <span class="font-medium text-gray-400">(optional)</span></label>
-                            <button type="button" id="locationBtn" onclick="captureLocation()" class="w-full px-5 py-4 bg-gray-50 border border-dashed border-gray-300 rounded-2xl text-navy font-semibold flex items-center justify-center gap-2 btn-active">
-                                <i class="fas fa-location-crosshairs text-brandRed"></i>
-                                <span id="locationBtnText">Share Current Location</span>
-                            </button>
-                            <p id="locationStatus" class="text-xs text-gray-500 mt-2">Tap this while you are at your shop for faster delivery.</p>
-                        </div>
-                        <button onclick="handleWhatsAppOrder()" class="w-full bg-whatsappGreen text-white py-4 px-2 rounded-2xl font-extrabold text-base md:text-lg btn-active shadow-lg flex items-center justify-center gap-2 mt-4">
-                            <i class="fab fa-whatsapp text-xl md:text-2xl flex-shrink-0"></i> 
-                            <span class="text-center leading-tight">Send Order on WhatsApp</span>
+                        <button id="sendOrderBtn" onclick="handleWhatsAppOrder()" class="w-full bg-whatsappGreen text-white py-4 px-2 rounded-2xl font-extrabold text-base md:text-lg btn-active shadow-lg flex items-center justify-center gap-2 mt-4 disabled:opacity-70">
+                            <i class="fab fa-whatsapp text-xl md:text-2xl flex-shrink-0"></i>
+                            <span id="sendOrderBtnText" class="text-center leading-tight">Send Order on WhatsApp</span>
                         </button>
+                        <p class="text-xs text-gray-500 text-center -mt-3"><i class="fas fa-location-dot text-brandRed mr-1"></i>Allow location when asked so we can find your shop easily.</p>
                     </div>
                 </div>
             </div>
@@ -250,39 +266,55 @@
             setTimeout(() => el.classList.remove('show'), 3000);
         }
 
-        let shopLocation = null; // { lat, lng }
+        // Did the visitor arrive from a Google Ads click? Auto-tagging adds gclid (or gbraid/wbraid
+        // on iOS) to the landing URL. Remembered for 30 days so a return visit still counts as the ad.
+        const fromGoogleAds = (function () {
+            const KEY = 'gk_ads_click_at';
+            const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+            const params = new URLSearchParams(window.location.search);
+            const isAdClick = !!(params.get('gclid') || params.get('gbraid') || params.get('wbraid'));
 
-        function captureLocation() {
-            const btnText = document.getElementById('locationBtnText');
-            const status = document.getElementById('locationStatus');
-
-            if (!navigator.geolocation) {
-                status.innerText = "Location is not supported on this device.";
-                return;
+            try {
+                if (isAdClick) {
+                    localStorage.setItem(KEY, String(Date.now()));
+                    return true;
+                }
+                const at = Number(localStorage.getItem(KEY));
+                return !!at && Date.now() - at < MAX_AGE_MS;
+            } catch (e) {
+                return isAdClick;
             }
+        })();
 
-            btnText.innerText = "Getting location...";
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    shopLocation = {
-                        lat: pos.coords.latitude.toFixed(6),
-                        lng: pos.coords.longitude.toFixed(6)
-                    };
-                    btnText.innerText = "Location Added ✓";
-                    status.innerHTML = `Accuracy ~${Math.round(pos.coords.accuracy)}m · <a href="https://www.google.com/maps?q=${shopLocation.lat},${shopLocation.lng}" target="_blank" class="underline text-navy">View on map</a>`;
-                },
-                (err) => {
-                    shopLocation = null;
-                    btnText.innerText = "Share Current Location";
-                    status.innerText = err.code === err.PERMISSION_DENIED
-                        ? "Location permission denied. You can still send the order."
-                        : "Could not get location. Please try again.";
-                },
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-            );
+        // GGO = Google Ads order, GKO = everything else. e.g. GGO202610160427
+        function generateOrderId() {
+            const d = new Date();
+            const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+            const rand = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+            return `${fromGoogleAds ? 'GGO' : 'GKO'}${date}${rand}`;
         }
 
-        function handleWhatsAppOrder() {
+        // Resolves to { lat, lng } or null (denied, unsupported, or timed out). Never rejects.
+        function getShopLocation() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) return resolve(null);
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => resolve({
+                        lat: pos.coords.latitude.toFixed(6),
+                        lng: pos.coords.longitude.toFixed(6)
+                    }),
+                    () => resolve(null),
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5 * 60 * 1000 }
+                );
+            });
+        }
+
+        function setSending(isSending) {
+            document.getElementById('sendOrderBtn').disabled = isSending;
+            document.getElementById('sendOrderBtnText').innerText = isSending ? "Getting location..." : "Send Order on WhatsApp";
+        }
+
+        async function handleWhatsAppOrder() {
             const businessNumber = "917678153075"; // Actual number here
             const shop = document.getElementById('shopName').value.trim();
             const phone = document.getElementById('mobileNumber').value.trim();
@@ -302,8 +334,12 @@
                 return;
             }
 
+            setSending(true);
+            const shopLocation = await getShopLocation();
+
             // Formatting the message
             let message = `New Order from Go-Kirana Website!%0A` +
+                            `*Order ID:* ${generateOrderId()}%0A` +
                             `*Shop:* ${encodeURIComponent(shop)}%0A` +
                             `*Phone:* ${encodeURIComponent(phone)}%0A` +
                             `*Items:*%0A${encodeURIComponent(list)}`;
@@ -314,13 +350,17 @@
             }
 
             const whatsappUrl = `https://wa.me/${businessNumber}?text=${message}`;
-            
+
             // Interaction logging (Simulation)
             console.log("Redirecting to:", whatsappUrl);
-            
-            // Redirection
-            window.open(whatsappUrl, '_blank');
+
+            // Record the Google Ads conversion, then go to WhatsApp in the same tab
+            // (a new tab opened after waiting for the location prompt gets blocked as a popup)
+            gtag_report_conversion(whatsappUrl);
         }
+
+        // Reset the button when the user comes back from WhatsApp via the Back button
+        window.addEventListener('pageshow', () => setSending(false));
 
         // Prevent non-numeric in phone input
         document.getElementById('mobileNumber').addEventListener('input', function (e) {
